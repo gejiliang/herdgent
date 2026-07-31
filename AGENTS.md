@@ -11,6 +11,12 @@
 - **主键只用 harness 侧 session id**（claude 的 UUID）。herdr 的 `workspace_id` / `pane_id` / `terminal_id` 都会失效或变化，只能当本次寻址的临时句柄。
 - **破坏性实验用命名会话**（配方见下）。日常 dogfood 就在 `default` 里跑——插件本来就是用户全局的，而且让归属边界从第一天就 load-bearing 正是目的。只有「可能起一堆东西 / 可能删错东西」的实验才需要隔离。
 
+- ⚠️ **任何会调到 `spawn_worker` / `startManagedSession` 的测试，必须把 `HERDR_SOCKET_PATH` 指到隔离 socket 或一个不存在的路径。**
+  「以为它连不上」不算数——**已经翻过一次车**：`test/identity.mjs` 里设了 `HERDR_SOCKET_PATH: ""`，
+  但空字符串是 falsy，`herdr` CLI 于是回落到 default session，在 GG 的工作区里建了 5 个 workspace、
+  起了 5 个 claude、烧了额度，其中一个还停在 `blocked` 等输入。
+  判据是**结构性**的：测试进程根本连不上真 herdr，而不是「测试逻辑应该不会走到那一步」。
+
 ## 开发隔离配方（动手前先读）
 
 plugin 安装是**用户全局**的（herdr 0.7.5 起），但**运行时可以完全隔离**——用命名会话：

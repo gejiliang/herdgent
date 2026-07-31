@@ -15,7 +15,7 @@ function check(name, ok, detail = "") {
 }
 
 // 起一个 MCP server，握手 + 列工具 + ping，然后关掉。
-function probe({ args = [], env = {} } = {}) {
+function probe({ args = [], env = {}, probeSpawn = false } = {}) {
   return new Promise((res, rej) => {
     const proc = spawn(process.execPath, [SERVER, ...args], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -53,19 +53,31 @@ function probe({ args = [], env = {} } = {}) {
       out.tools = (tools.result?.tools ?? []).map((t) => t.name).sort();
       const ping = await send("tools/call", { name: "ping", arguments: {} });
       out.ping = JSON.parse(ping.result?.content?.[0]?.text ?? "{}");
-      const spawnTry = await send("tools/call", {
-        name: "spawn_worker",
-        arguments: { title: "x", task: "y" },
-      });
-      out.spawnResult = spawnTry.result
-        ? { isError: !!spawnTry.result.isError, ...JSON.parse(spawnTry.result.content?.[0]?.text ?? "{}") }
-        : { rpcError: spawnTry.error };
+
+      // ⚠️ 只在【预期会被拒】的身份上调 spawn_worker。
+      // 编排者身份下这个调用会【真的去建 workspace、真的起一个 agent】——
+      // 曾经在这里翻过车：以为 HERDR_SOCKET_PATH="" 能让它连不上，
+      // 但空字符串是 falsy，herdr CLI 于是连了 default session，
+      // 在用户的工作区里留下 5 个探针会话。
+      if (probeSpawn) {
+        const spawnTry = await send("tools/call", {
+          name: "spawn_worker",
+          arguments: { title: "identity-probe", task: "must never actually run" },
+        });
+        out.spawnResult = spawnTry.result
+          ? { isError: !!spawnTry.result.isError, ...JSON.parse(spawnTry.result.content?.[0]?.text ?? "{}") }
+          : { rpcError: spawnTry.error };
+      }
       proc.stdin.end();
       proc.kill();
       res(out);
     })().catch(rej);
   });
 }
+
+// 第二层保险：把 herdr socket 指向一个不存在的路径。即使将来某个断言写漏了，
+// 也不可能连上真的 herdr 去建东西。测试【永远】不该有碰到 default session 的可能。
+const DEAD_SOCKET = join(tmpdir(), "hg-identity-no-such-herdr.sock");
 
 const state = mkdtempSync(join(tmpdir(), "hg-identity-"));
 mkdirSync(state, { recursive: true });
@@ -94,7 +106,7 @@ writeFileSync(
 try {
   // ---- 1. 裸终端（没有 HERDR_PANE_ID）：必然是编排者 ----
   const cli = await probe({
-    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "", HERDR_SOCKET_PATH: "" },
+    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "", HERDR_SOCKET_PATH: DEAD_SOCKET },
   });
   check("CLI 直连被判为编排者", cli.ping.role === "orchestrator", cli.ping.role);
   check("CLI 直连 root 是一次性的", String(cli.ping.root).startsWith("orc:cli:"), cli.ping.root);
@@ -102,7 +114,8 @@ try {
 
   // ---- 2. herdr 里的 worker pane：认出自己是 worker ----
   const worker = await probe({
-    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "w9:p1" },
+    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: DEAD_SOCKET },
+    probeSpawn: true, // 只有这个身份下 spawn 必被拒，才安全
   });
   check("worker pane 被判为 worker", worker.ping.role === "worker", worker.ping.role);
   check("worker 继承所属编排的 root", worker.ping.root === "orc-test", worker.ping.root);
@@ -119,7 +132,7 @@ try {
   // ---- 3. 显式 --root（orchestrate action 那条路）----
   const explicit = await probe({
     args: ["--root", "orc-explicit"],
-    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "w9:p1" },
+    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: DEAD_SOCKET },
   });
   check("显式 --root 优先于自动推导", explicit.ping.root === "orc-explicit", explicit.ping.root);
   check("显式 --root 时是编排者", explicit.ping.role === "orchestrator", explicit.ping.role);
