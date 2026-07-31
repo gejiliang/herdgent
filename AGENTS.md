@@ -6,8 +6,8 @@
 ## 不可逆约束
 
 - **只管自己起的会话。** 只操作本插件建出来的 workspace；**绝不按 label / agent 名去全局搜索**。GG 手起的会话（SPQR、mxweb、worldquant……）永远不在射程内。边界是结构性的，不是「记得过滤」。编排会一次起一批 worker，这条只会更吃紧。
-- **不改被管理项目的源码与配置。** herdgent 自己的状态只写 `HERDR_PLUGIN_STATE_DIR`；给会话的上下文只经启动 argv（`--settings` / `--mcp-config`）注入。
-  唯一的例外是 **git worktree**——编排必然要在项目里建 checkout，但只能经 `herdr worktree create` 建、经 `herdr worktree remove` 收，不手工往项目目录写任何文件。
+- **不改被管理项目的源码与配置。** herdgent 自己的状态只写 `HERDR_PLUGIN_STATE_DIR`；给会话的上下文只经启动 argv（`--settings` / `--mcp-config`）注入，两者实测均为**合并**语义，不会覆盖用户自己的配置。
+  worktree 也不算例外——实测 checkout 落在 `~/.herdr/worktrees/<repo>/<branch>`，项目仓库只多 `.git/worktrees/` 元数据。但**只能经 `herdr worktree create` / `remove` 进出**，且 `remove` 不删分支，收尾要补 `git branch -D`，否则每次编排都在用户仓库里留一个分支。
 - **主键只用 harness 侧 session id**（claude 的 UUID）。herdr 的 `workspace_id` / `pane_id` / `terminal_id` 都会失效或变化，只能当本次寻址的临时句柄。
 - **破坏性实验用命名会话**（配方见下）。日常 dogfood 就在 `default` 里跑——插件本来就是用户全局的，而且让归属边界从第一天就 load-bearing 正是目的。只有「可能起一堆东西 / 可能删错东西」的实验才需要隔离。
 
