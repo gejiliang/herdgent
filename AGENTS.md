@@ -20,13 +20,17 @@ env -u HERDR_SOCKET_PATH -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_
     HERDR_SESSION=herdgentdev herdr server &
 
 export HERDR_SOCKET_PATH=~/.config/herdr/sessions/herdgentdev/herdr.sock
-export HERDR_PLUGIN_STATE_DIR=/tmp/herdgent-state      # 别用真状态目录
 
-# 用完清理
+# 用完清理（state 落在真目录，见下，dev 数据要手动清）
 herdr session stop herdgentdev && herdr session delete herdgentdev
+rm -rf ~/.local/state/herdr/plugins/herdgent/{registry.json,sessions,hook.log}
 ```
 
 **擦 env 是必须的**，不是保险动作：从一个 herdr pane 里起 server，它会继承 `HERDR_SOCKET_PATH` 并指回 default，于是你以为在隔离环境里做的事全落在 GG 的工作区。
+
+**同时要擦 `CLAUDE_CODE_*` / `CLAUDECODE` / `CLAUDE_PID`**（若从 Claude Code 里起 server）：server 把自己的环境传给它起的每个 pane 和 agent，脏 env 会让受管会话关掉 transcript、标题串台，`transcript_path` 也就拿不到了。
+
+⚠️ **`HERDR_PLUGIN_STATE_DIR` 不能用来隔离 state（实测 2026-07-31）。** 它是 herdr **注入**给插件命令的，不是读取的——你 export 什么都会被覆盖成 `~/.local/state/herdr/plugins/<plugin-id>/`。所以命名会话隔离的是 workspace/pane/agent，**不隔离 registry**：dev 跑出来的登记记录会落进真状态目录，用完手动清（见上）。要真隔离 state 只有换 plugin id 这一条路。
 
 **dev / prod 要不要分两套？** 不用建两套环境，herdr 已经给了三条隔离轴：
 1. **plugin id** —— config/state 目录按 id 分（`herdr plugin config-dir <ID>`）。等到稳定版天天用、又要继续开发时，再让开发副本换个 id；现在只有 link 的开发副本，一个 id 够用。

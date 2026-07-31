@@ -21,6 +21,8 @@
 ## 现状（0.0.1）
 
 最小闭环已跑通并实测：起受管会话 → 钩子回填 harness session id → 重启后对账埋葬幽灵。
+manifest 已经过 herdr 0.7.5 校验器实测（`plugin link` 一次通过），`[[startup]]` 与两个
+action 均验证被真的调用。
 
 - `bin/session-start.mjs` — 起一个受管会话（plugin action）
 - `bin/reconcile.mjs` — `[[startup]]` 对账
