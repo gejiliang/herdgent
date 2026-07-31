@@ -58,19 +58,32 @@ Space 侧栏
 
 状态 rollup 是 herdr 自带的：一个 worker `blocked`，它的 pane、tab、workspace 全部显示 blocked。**跨会话总览因此不用建**——Space 侧栏看整体，Agent 侧栏看每个 worker，会话内部看 statusline。
 
-## 怎么起一次编排
+## 怎么用
 
-herdr **没有命令面板**，plugin action 只有三种触发方式：CLI、绑快捷键、Ctrl+click 匹配的 URL。
+**装一次，之后每个会话都能派活**：
 
 ```sh
-# 在目标仓库的 workspace 里（当前 workspace 决定编排的 repo）
+node bin/install-mcp.mjs        # 打印各 harness 的注册命令，自己挑一条跑
+```
+
+装完就是这个流程：**在你已经聊清楚需求的那个会话里**，直接说「用 herdgent 并行做这几件事」。
+不用另起一个空白的编排者会话把需求重讲一遍——需求的上下文就在当前会话里。
+
+编排者**在不在 herdr 里都行**。CLI 直连一个 agent、只要结果不看过程，同样能派活：
+herdgent 只需要能连上 herdr socket，而 **worker 永远跑在 herdr 的真终端里**，
+随时能点进去看、能直接打字接管。
+
+### 另一条路：起一个干净的编排者会话
+
+不想污染当前会话时（比如一批互不相关的任务），用 plugin action。
+herdr **没有命令面板**，action 只能经 CLI、快捷键或 Ctrl+click 匹配的 URL 触发：
+
+```sh
+# 在目标仓库的 workspace 里跑；当前活跃 workspace 决定编排哪个仓库
 herdr plugin action invoke orchestrate --plugin herdgent
 ```
 
-context 里的 `workspace_cwd` 由**活跃 workspace** 提供（不是由 CLI/TUI 之分决定），
-所以在哪个 workspace 里跑就编排哪个仓库。输出里的 `repo` 字段可以核对。
-
-想绑快捷键就自己往 `~/.config/herdr/config.toml` 加——那是用户配置，插件不该代写：
+想绑快捷键就自己往 `~/.config/herdr/config.toml` 加——那是用户配置，插件不代写：
 
 ```toml
 [[keys.command]]
@@ -80,7 +93,13 @@ command = "herdgent.orchestrate"
 description = "start herdgent orchestrator"
 ```
 
-## 现状（0.3.0）
+### worker 不会递归
+
+全局注册之后 worker 也会加载这些工具。herdgent 的 MCP server 启动时会**认出自己是不是 worker**
+（查 registry 比对 `HERDR_PANE_ID`），是的话就不暴露 `spawn_worker` 那一组。
+比整个屏蔽掉全局 MCP 温和——worker 仍能用你其它的 MCP 服务。
+
+## 现状（0.4.0）
 
 **跨厂商互审端到端跑通并实测**：`orchestrate` 起编排者 → 它派出 claude worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派 **codex** worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。
 

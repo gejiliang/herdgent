@@ -6,7 +6,7 @@
 //
 // state-dir 必须显式传：HERDR_PLUGIN_STATE_DIR 只注入插件命令，
 // 【不会】传进插件启动的会话，而这个进程是被那个会话拉起来的（findings 第五节）。
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
@@ -28,7 +28,48 @@ const { startManagedSession, findWorker, reclaimSession, sendAndConfirm, readWor
 const { SUPPORTED, getHarness } = await import("../lib/harness/index.mjs");
 const { allProfiles, applyProfile } = await import("../lib/profiles.mjs");
 
-const ROOT = flag("root", "adhoc");
+// ---- 我是谁、这次编排叫什么 ----
+//
+// MCP server 有三条启动路径，身份和 root 各不相同：
+//   1. orchestrate action 起的      → --root 显式给定
+//   2. 全局注册后由 herdr 里的会话拉起 → 查 registry 认自己；不是 worker 就是编排者
+//   3. 裸终端里 CLI 直连的会话拉起    → 必然是编排者（worker 都在 herdr 里）
+//
+// 【为什么要认出自己是不是 worker】：全局注册之后 worker 也会加载这些工具，
+// 不拦的话它能继续 spawn，一层套一层没有底。认出来就不给它 spawn_worker，
+// 但其它 MCP（nowledge-mem 之类）不受影响——比整个屏蔽掉全局 MCP 温和。
+function resolveIdentity() {
+  const paneId = process.env.HERDR_PANE_ID || null;
+
+  const explicit = flag("root");
+  if (explicit) return { root: explicit, role: "orchestrator", paneId };
+
+  if (paneId) {
+    // 登记【先于】起 agent，所以 worker 的 MCP server 启动时这条记录一定在。
+    const me = registry.list().find((r) => r.pane_id === paneId);
+    if (me?.role === "worker") {
+      return { root: me.root, role: "worker", paneId, workerSlug: me.slug, workerTitle: me.title };
+    }
+    if (me?.root) return { root: me.root, role: "orchestrator", paneId };
+
+    // 在 herdr 里但不是 herdgent 起的会话——用户自己开的，它就是编排者。
+    // root 取 harness session id：那是唯一不随重启变化的主键。
+    const r = tryHerdr(["agent", "get", paneId]);
+    const sid = r.ok ? r.result.agent?.agent_session?.value : null;
+    return { root: sid ? `orc:${sid}` : `orc:pane:${paneId}`, role: "orchestrator", paneId };
+  }
+
+  // 不在 herdr 里。一次性 root：会话没了就结束，下次是新的一轮，
+  // 上一轮遗留的 worker 由孤儿扫描列出来问人。
+  return {
+    root: `orc:cli:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+    role: "orchestrator",
+    paneId: null,
+  };
+}
+
+const IDENTITY = resolveIdentity();
+const ROOT = IDENTITY.root;
 const REPO = flag("repo", process.cwd());
 // 并发闸有默认值但可配。plugin action invoke 【没有传参机制】，所以「每次启动前选」
 // 不能靠 action 参数——改成运行时可调：启动值来自插件配置，orchestrator 可以用
@@ -74,6 +115,20 @@ function publicView(s) {
     yolo: !!s.yolo,
     harness_session_id: s.harness_session_id,
   };
+}
+
+// 二次防线：身份是启动时定的，但 registry 随时在变。派活前再确认一次，
+// 免得某种没想到的时序让 worker 拿到了 spawn 权限。
+function assertCanSpawn() {
+  if (IDENTITY.role === "worker") {
+    throw Object.assign(
+      new Error(
+        `this session is worker '${IDENTITY.workerTitle ?? IDENTITY.workerSlug}' in orchestration ` +
+          `${ROOT} — workers do not spawn workers. Report back to your orchestrator instead.`,
+      ),
+      { code: "workers_cannot_spawn" },
+    );
+  }
 }
 
 function mustFindWorker(workerId) {
@@ -128,6 +183,7 @@ const TOOLS = [
       required: ["title", "task"],
     },
     handler: async (args) => {
+      assertCanSpawn();
       const spec = applyProfile(args);
       const harness = spec.harness || "claude";
       if (!SUPPORTED.includes(harness)) {
@@ -217,6 +273,22 @@ const TOOLS = [
     },
   },
   {
+    name: "orchestration_guide",
+    description:
+      "Read this BEFORE your first spawn_worker in a session. It is the full orchestration playbook — what you delegate, how reviews are assigned across vendors, how to handle a blocked worker, and how to clean up. Skill files live in different places for every harness, so this tool is how the playbook reaches all of them.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    handler: async () => {
+      const path = join(import.meta.dirname, "..", "skills", "orchestrate", "SKILL.md");
+      try {
+        return { guide: readFileSync(path, "utf8") };
+      } catch (e) {
+        throw Object.assign(new Error(`cannot read the guide at ${path}: ${e.message}`), {
+          code: "guide_unreadable",
+        });
+      }
+    },
+  },
+  {
     name: "list_profiles",
     description:
       "List the worker profiles available to spawn_worker. A profile bundles harness + model + flags under one name, so you pick a role instead of assembling five parameters. Model availability is cross-checked against what pi can actually run right now.",
@@ -297,8 +369,12 @@ const TOOLS = [
       ok: true,
       marker: "HERDGENT_MCP_ALIVE",
       root: ROOT,
+      role: IDENTITY.role,
       pid: process.pid,
       harnesses: SUPPORTED,
+      ...(IDENTITY.role === "worker"
+        ? { note: `this session is worker '${IDENTITY.workerTitle ?? IDENTITY.workerSlug}'; it cannot spawn more workers` }
+        : {}),
     }),
   },
   {
@@ -572,4 +648,17 @@ try {
   log(`orchestration record failed: ${e.code || "?"}: ${e.message}`);
 }
 
-createServer({ name: "herdgent", version: "0.0.1", tools: TOOLS, onLog: log });
+// worker 拿不到派活类工具：认得出自己是 worker，就把这些摘掉，
+// 免得它在工具列表里看到 spawn_worker 而动念递归。
+const WORKER_HIDDEN = new Set([
+  "spawn_worker",
+  "cancel_worker",
+  "set_worker_limit",
+  "send_to_worker",
+  "wait_for_worker",
+]);
+const EXPOSED = IDENTITY.role === "worker" ? TOOLS.filter((t) => !WORKER_HIDDEN.has(t.name)) : TOOLS;
+
+log(`identity: role=${IDENTITY.role} root=${ROOT} pane=${IDENTITY.paneId ?? "-"} tools=${EXPOSED.length}`);
+
+createServer({ name: "herdgent", version: "0.1.0", tools: EXPOSED, onLog: log });
