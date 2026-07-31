@@ -40,6 +40,7 @@ writeFileSync(
 registry.put({
   key: pendingKey,
   slug,
+  role: "standalone", // 不是编排 worker，不计入并发闸
   harness: "claude",
   agent_name: agentName,
   workspace_label: label,
@@ -67,29 +68,31 @@ try {
   // 起不来就把自己建的 workspace 收回去，否则每次失败都在用户界面里留一个空壳。
   const cleanup = tryHerdr(["workspace", "close", ws.workspace.workspace_id]);
   const note = cleanup.ok ? "workspace reclaimed" : `workspace ${ws.workspace.workspace_id} LEAKED (${cleanup.code})`;
-  const reg = registry.load();
-  const entry = Object.values(reg.sessions).find((s) => s.slug === slug);
-  if (entry) {
-    entry.status = "failed";
-    entry.failure = `${e.code}: ${e.message}`;
-    registry.save(reg);
-  }
+  registry.update((reg) => {
+    const entry = Object.values(reg.sessions).find((s) => s.slug === slug);
+    if (entry) {
+      entry.status = "failed";
+      entry.failure = `${e.code}: ${e.message}`;
+    }
+  });
   console.error(`herdgent: agent start failed (${e.code}); ${note}`);
   throw e;
 }
 
 // 钩子可能已经把 pending: 键换成了 claude:<uuid>，所以按 slug 找回自己那条，不按键。
-const reg = registry.load();
-const entry = Object.values(reg.sessions).find((s) => s.slug === slug);
-const key = entry?.key ?? pendingKey;
-reg.sessions[key] = {
-  ...(entry ?? {}),
-  key,
-  status: "active",
-  // herdr 侧也报告了 harness session id；两个来源应当一致，不一致时以钩子为准并留痕。
-  herdr_reported_session_id: started.agent?.agent_session?.value ?? null,
-  harness_session_id: entry?.harness_session_id ?? started.agent?.agent_session?.value ?? null,
-};
-registry.save(reg);
+// 整段在锁内做：钩子进程此刻可能正在改同一张表。
+const finalEntry = registry.update((reg) => {
+  const entry = Object.values(reg.sessions).find((s) => s.slug === slug);
+  const key = entry?.key ?? pendingKey;
+  reg.sessions[key] = {
+    ...(entry ?? {}),
+    key,
+    status: "active",
+    // herdr 侧也报告了 harness session id；两个来源应当一致，不一致时以钩子为准并留痕。
+    herdr_reported_session_id: started.agent?.agent_session?.value ?? null,
+    harness_session_id: entry?.harness_session_id ?? started.agent?.agent_session?.value ?? null,
+  };
+  return reg.sessions[key];
+});
 
-console.log(JSON.stringify({ started: reg.sessions[key] }, null, 2));
+console.log(JSON.stringify({ started: finalEntry }, null, 2));

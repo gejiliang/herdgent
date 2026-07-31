@@ -12,21 +12,21 @@
 import { tryHerdr } from "../lib/herdr.mjs";
 import * as registry from "../lib/registry.mjs";
 
-const reg = registry.load();
-const sessions = Object.values(reg.sessions);
-if (sessions.length === 0) {
-  console.log("herdgent: registry empty, nothing to reconcile");
+// 【两阶段】探测要挨个调 herdr CLI，几十个会话就是几十次 IO。全程持锁会远超锁的
+// 过期时间（10 秒）而被别人抢走，还会挡住所有 MCP server 的写入。
+// 所以先无锁读快照 + 探测，最后只把结论写回去。
+const snapshot = registry.list().filter((s) => s.status === "active");
+if (snapshot.length === 0) {
+  console.log("herdgent: no active sessions, nothing to reconcile");
   process.exit(0);
 }
 
+const verdicts = [];
 let alive = 0;
-let buried = 0;
-let unknown = 0;
 
-for (const s of sessions) {
-  if (s.status !== "active") continue;
-
+for (const s of snapshot) {
   const pane = tryHerdr(["pane", "process-info", "--pane", s.pane_id]);
+
   if (!pane.ok && pane.code === "spawn_failed") {
     // herdr 本身不可达：不要据此宣告任何会话死亡，否则一次网络/权限抖动就抹掉全部登记。
     console.log(`herdgent: herdr unreachable (${pane.message}); reconcile aborted, registry untouched`);
@@ -39,16 +39,35 @@ for (const s of sessions) {
   }
 
   if (pane.code === "pane_not_found") {
-    s.status = "dead";
-    s.died_detected_at = new Date().toISOString();
-    s.death_reason = "pane_not_found_at_startup";
-    buried += 1;
+    verdicts.push({ key: s.key, dead: true });
   } else {
     // 没见过的错误码：不猜。留在 active 并标注，让人来看。
-    s.reconcile_warning = `${pane.code}: ${pane.message}`;
-    unknown += 1;
+    verdicts.push({ key: s.key, warning: `${pane.code}: ${pane.message}` });
   }
 }
 
-registry.save(reg);
-console.log(`herdgent: reconcile done — ${alive} alive, ${buried} buried, ${unknown} unclear`);
+const applied = registry.update((reg) => {
+  let buried = 0;
+  let unknown = 0;
+  for (const v of verdicts) {
+    const row = reg.sessions[v.key];
+    // 探测期间别的进程可能已经改过这条（比如某个 orchestrator 主动 terminate 了它）。
+    // 只在它仍是 active 时才落笔，绝不覆盖更新的状态。
+    if (!row || row.status !== "active") continue;
+
+    if (v.dead) {
+      row.status = "dead";
+      row.died_detected_at = new Date().toISOString();
+      row.death_reason = "pane_not_found_at_startup";
+      buried += 1;
+    } else {
+      row.reconcile_warning = v.warning;
+      unknown += 1;
+    }
+  }
+  return { buried, unknown };
+});
+
+console.log(
+  `herdgent: reconcile done — ${alive} alive, ${applied.buried} buried, ${applied.unknown} unclear`,
+);

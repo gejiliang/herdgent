@@ -22,22 +22,33 @@ try {
 }
 
 const sessionId = payload.session_id || null;
-const reg = registry.load();
-const prev = reg.sessions[pendingKey];
 
-if (!prev) {
-  registry.auditLog(`miss key=${pendingKey} session_id=${sessionId ?? "none"} parse_error=${parseError ?? "none"}`);
-  process.exit(0);
+// 整段在锁内：起会话的 action 进程此刻正在写同一张表（钩子在 agent start 执行期间就回调）。
+// 任何异常都只能留痕，绝不能抛——这个进程跑在 harness 的启动路径上。
+try {
+  const outcome = registry.update((reg) => {
+    const prev = reg.sessions[pendingKey];
+    if (!prev) return { rekeyed: false };
+
+    const key = sessionId ? `claude:${sessionId}` : pendingKey;
+    delete reg.sessions[pendingKey];
+    reg.sessions[key] = {
+      ...prev,
+      key,
+      harness_session_id: sessionId,
+      transcript_path: payload.transcript_path || null,
+      hook_seen_at: new Date().toISOString(),
+    };
+    return { rekeyed: true, key };
+  });
+
+  if (outcome.rekeyed) {
+    registry.auditLog(`rekey ${pendingKey} -> ${outcome.key} parse_error=${parseError ?? "none"}`);
+  } else {
+    registry.auditLog(
+      `miss key=${pendingKey} session_id=${sessionId ?? "none"} parse_error=${parseError ?? "none"}`,
+    );
+  }
+} catch (e) {
+  registry.auditLog(`hook failed key=${pendingKey} err=${e.code || "?"}: ${e.message}`);
 }
-
-const key = sessionId ? `claude:${sessionId}` : pendingKey;
-delete reg.sessions[pendingKey];
-reg.sessions[key] = {
-  ...prev,
-  key,
-  harness_session_id: sessionId,
-  transcript_path: payload.transcript_path || null,
-  hook_seen_at: new Date().toISOString(),
-};
-registry.save(reg);
-registry.auditLog(`rekey ${pendingKey} -> ${key} parse_error=${parseError ?? "none"}`);
