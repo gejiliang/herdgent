@@ -58,6 +58,28 @@ Space 侧栏
 
 状态 rollup 是 herdr 自带的：一个 worker `blocked`，它的 pane、tab、workspace 全部显示 blocked。**跨会话总览因此不用建**——Space 侧栏看整体，Agent 侧栏看每个 worker，会话内部看 statusline。
 
+## 怎么起一次编排
+
+herdr **没有命令面板**，plugin action 只有三种触发方式：CLI、绑快捷键、Ctrl+click 匹配的 URL。
+
+```sh
+# 在目标仓库的 workspace 里（当前 workspace 决定编排的 repo）
+herdr plugin action invoke orchestrate --plugin herdgent
+```
+
+context 里的 `workspace_cwd` 由**活跃 workspace** 提供（不是由 CLI/TUI 之分决定），
+所以在哪个 workspace 里跑就编排哪个仓库。输出里的 `repo` 字段可以核对。
+
+想绑快捷键就自己往 `~/.config/herdr/config.toml` 加——那是用户配置，插件不该代写：
+
+```toml
+[[keys.command]]
+key = "prefix+alt+o"
+type = "plugin_action"
+command = "herdgent.orchestrate"
+description = "start herdgent orchestrator"
+```
+
 ## 现状（0.3.0）
 
 **跨厂商互审端到端跑通并实测**：`orchestrate` 起编排者 → 它派出 claude worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派 **codex** worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。
