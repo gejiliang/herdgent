@@ -30,28 +30,44 @@
 - 结果从 `read_worker` 拿（默认 `mode=result`，读的是 worker 的最后一条回复）。
   worker 不知道自己在被编排，所以别指望它按格式汇报——你要的结构化信息，写进派给它的任务里。
 
+## 用 profile 派活，别自己拼参数
+
+先 `list_profiles`。每个 profile 把 harness、模型、权限标志打包成一个名字：
+
+- `claude-impl` / `codex-impl` —— 实现者，会写代码，**记得给 `branch`**
+- `review-gpt` / `review-gemini` / `review-kimi` / `review-deepseek` / `review-claude` —— 只读评审，各走一家厂商
+- `explore-fast` —— 便宜快的只读探索，适合大扇出
+
+显式参数永远盖过 profile，所以临时改一处不用另建 profile。
+`list_profiles` 会交叉核对模型当前是否真的可用——**别拿一个 `model_available: false` 的 profile 去派活**。
+
 ## 评审：换一家厂商
 
-**实现者不评审自己的活，而且 reviewer 要换一家 harness。**
+**实现者不评审自己的活，而且 reviewer 要换一家厂商。**
 
-`spawn_worker` 的 `harness` 参数目前支持 `claude` 和 `codex`。claude 实现的就派 codex 评审，
-反之亦然——**不同厂商的模型有不同的盲区**，同一家评自己写的东西，会一起漏掉同一类问题。
-这是 herdgent 存在的理由：单家编排 Claude Code 自己的 dynamic workflow 就够了。
+不同厂商的模型有不同的盲区；同一家评自己写的东西，会一起漏掉同一类问题。
+这是 herdgent 存在的理由——单家编排 Claude Code 自己的 dynamic workflow 就够了。
+
+`review-*` 系列覆盖 OpenAI、Google、Moonshot、DeepSeek、Anthropic 五家。
+claude 实现的就别派 `review-claude`，挑另外四家里的一个。
 
 给 reviewer 的是：
 
 - 完整的 diff（你自己用 `git diff` 取，落到一个文件里让它读，**不要让 reviewer 去实现者的 worktree 里翻**）
 - 验收标准（当初派活时定的那个）
 
-reviewer **只报告问题，不改代码**。要改就把问题作为新任务派回给实现者，或者派个新的实现者。
+reviewer **只报告问题，不改代码**。这一点由 `review-*` profile 的只读工具白名单强制，
+不是靠嘱咐它。要改就把问题作为新任务派回给实现者。
 
-## 两家 harness 的差别
+## 三家 harness 的差别
 
-你不需要关心底层差异（herdgent 都处理了），但有两点影响你怎么派活：
+herdgent 把底层差异都处理了，但有三点影响你怎么派活：
 
-- **codex 的任务默认在只读沙箱里跑。** 要它改文件就得带 `yolo: true`，否则它会卡在审批上。
-- **worker 起来后 herdr 要几秒才认到 codex 的会话身份**，所以刚 spawn 完立刻 `read_worker`
-  可能报 `transcript_not_ready`。这不是错误——先 `wait_for_worker`，或者过几秒重试。
+- **只有 `pi` 能指定模型。** claude 和 codex 只跑自己厂商的。所以跨厂商评审基本都走 pi
+  （`review-*` profile 就是这么配的），给 claude/codex 传 `model` 会直接报错。
+- **codex 要改文件必须 `yolo: true`**，否则卡在审批上。`codex-impl` 已经带了。
+- **刚 spawn 完立刻 `read_worker` 可能报 `transcript_not_ready`**——herdr 要几秒才认到
+  codex 的会话身份。这不是错误：先 `wait_for_worker`，或过几秒重试。
 
 ## worker 回报 `blocked` 时
 

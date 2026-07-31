@@ -7,6 +7,7 @@
 // state-dir 必须显式传：HERDR_PLUGIN_STATE_DIR 只注入插件命令，
 // 【不会】传进插件启动的会话，而这个进程是被那个会话拉起来的（findings 第五节）。
 import { appendFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
 import { watchPaneStatus } from "../lib/events.mjs";
@@ -24,7 +25,8 @@ if (stateDirArg) process.env.HERDGENT_STATE_DIR = stateDirArg;
 const registry = await import("../lib/registry.mjs");
 const { startManagedSession, findWorker, reclaimSession, sendAndConfirm, readWorkerResult } =
   await import("../lib/worker.mjs");
-const { SUPPORTED } = await import("../lib/harness/index.mjs");
+const { SUPPORTED, getHarness } = await import("../lib/harness/index.mjs");
+const { allProfiles, applyProfile } = await import("../lib/profiles.mjs");
 
 const ROOT = flag("root", "adhoc");
 const REPO = flag("repo", process.cwd());
@@ -46,6 +48,14 @@ function log(line) {
   } catch {
     // 日志失败不值得中断服务
   }
+}
+
+// 跑一个外部命令拿文本，失败一律返回 null。给 list_models 用——
+// 它问的是 pi 而不是 herdr，不该借用 herdr 的错误分类。
+function runSafe(argv) {
+  const r = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+  if (r.error || r.status !== 0) return null;
+  return r.stdout || "";
 }
 
 // 对外的 worker 句柄用 slug，不用 registry 的 key：
@@ -81,11 +91,16 @@ const TOOLS = [
   {
     name: "spawn_worker",
     description:
-      "Start a coding agent in its own herdr workspace and hand it a task. Returns immediately with a worker handle — the agent keeps running. Give `branch` to isolate the work in a git worktree (do this for anything that writes code); omit it for read-only work like review or exploration. Name the worker for the WORK it does (e.g. 'auth-refactor'), never for the vendor ('claude', 'worker').",
+      "Start a coding agent in its own herdr workspace and hand it a task. Returns immediately with a worker handle — the agent keeps running. Prefer naming a `profile` (see list_profiles) over assembling harness/model/flags yourself. Give `branch` to isolate the work in a git worktree (do this for anything that writes code); omit it for read-only work like review or exploration. Name the worker for the WORK it does (e.g. 'auth-refactor'), never for the vendor ('claude', 'worker').",
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string", description: "Short task label shown in the herdr UI, e.g. auth-refactor" },
+        profile: {
+          type: "string",
+          description:
+            "Preset worker configuration (see list_profiles), e.g. 'claude-impl' or 'review-gemini'. Fills in harness, model and flags; anything you pass explicitly still wins.",
+        },
         task: { type: "string", description: "The full instruction handed to the agent as its opening prompt" },
         harness: {
           type: "string",
@@ -98,16 +113,37 @@ const TOOLS = [
         },
         branch: { type: "string", description: "Git branch name; when given, the worker runs in its own git worktree" },
         cwd: { type: "string", description: "Repository path; defaults to the orchestration's repo" },
-        yolo: { type: "boolean", description: "Skip the agent's permission prompts entirely" },
+        yolo: { type: "boolean", description: "Skip the agent's permission prompts entirely. No effect on pi, which has no approval gate." },
+        model: {
+          type: "string",
+          description:
+            "Which model to run. Only 'pi' supports this — it fronts every configured provider (Anthropic, OpenAI, Google, Moonshot, Qwen, GLM, DeepSeek), so this is how you get a genuinely different vendor's opinion. Call list_models to see what is available.",
+        },
+        read_only: {
+          type: "boolean",
+          description:
+            "Restrict the worker to read-only tools. Prefer this over yolo for review and exploration — it is enforced by the tool allowlist, not by asking nicely. pi only.",
+        },
       },
       required: ["title", "task"],
     },
     handler: async (args) => {
-      const harness = args.harness || "claude";
+      const spec = applyProfile(args);
+      const harness = spec.harness || "claude";
       if (!SUPPORTED.includes(harness)) {
         throw Object.assign(
           new Error(`unsupported harness '${harness}' (supported: ${SUPPORTED.join(", ")})`),
           { code: "unsupported_harness" },
+        );
+      }
+
+      if (spec.model && !getHarness(harness).supportsModel) {
+        throw Object.assign(
+          new Error(
+            `harness '${harness}' cannot take a model (it only runs its own vendor's); ` +
+              `use harness 'pi' when you need a specific model`,
+          ),
+          { code: "model_not_supported" },
         );
       }
 
@@ -135,21 +171,32 @@ const TOOLS = [
         title: args.title,
         purpose: args.purpose || null,
         branch: args.branch || null,
-        yolo: !!args.yolo,
+        yolo: !!spec.yolo,
+        model: spec.model || null,
+        readOnly: !!spec.read_only,
       });
 
       const after = registry.countLive(ROOT);
       const result = {
         ...publicView(entry),
+        profile: spec.profile_applied,
         live_in_this_orchestration: after.inRoot,
         limit,
         live_across_all_orchestrations: after.global,
       };
       // 全局数不做硬拦截（「本编排只起了 2 个却被拒」会让人莫名其妙），
       // 但机器上一共开着多少必须一路报到 orchestrator 面前。
+      const warnings = [];
       if (after.global > limit) {
-        result.warning = `${after.global} agents are live across all orchestrations on this machine`;
+        warnings.push(`${after.global} agents are live across all orchestrations on this machine`);
       }
+      if (spec.profile_wants_branch && !args.branch) {
+        warnings.push(
+          `profile '${spec.profile_applied}' is an implementer but no branch was given — ` +
+            `it will write directly in the orchestration repo instead of an isolated worktree`,
+        );
+      }
+      if (warnings.length) result.warning = warnings.join("; ");
       return result;
     },
   },
@@ -167,6 +214,48 @@ const TOOLS = [
         limit: workerLimit(),
         live_across_all_orchestrations: counts.global,
       };
+    },
+  },
+  {
+    name: "list_profiles",
+    description:
+      "List the worker profiles available to spawn_worker. A profile bundles harness + model + flags under one name, so you pick a role instead of assembling five parameters. Model availability is cross-checked against what pi can actually run right now.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    handler: async () => {
+      const profiles = allProfiles();
+      const listed = runSafe(["pi", "--list-models"]);
+      const available = new Set(
+        (listed ?? "")
+          .split("\n")
+          .slice(1)
+          .map((l) => l.trim().split(/\s+/)[1])
+          .filter(Boolean),
+      );
+      return {
+        profiles: Object.entries(profiles).map(([name, p]) => ({
+          name,
+          ...p,
+          // 模型名会随网关配置漂移。标出来，别让编排者拿着跑不起来的 profile 去派活。
+          model_available: p.model ? (listed == null ? "unknown" : available.has(p.model)) : null,
+        })),
+      };
+    },
+  },
+  {
+    name: "list_models",
+    description:
+      "List the models available to pi workers. Use it before dispatching a review to pick a vendor genuinely different from the implementer's.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    handler: async () => {
+      const out = runSafe(["pi", "--list-models"]);
+      if (out == null) return { available: false, note: "pi is not on PATH" };
+      const models = out
+        .split("\n")
+        .slice(1)
+        .map((l) => l.trim().split(/\s+/))
+        .filter((c) => c.length >= 2 && c[0] && c[1])
+        .map(([provider, model]) => `${provider}/${model}`);
+      return { models, count: models.length };
     },
   },
   {

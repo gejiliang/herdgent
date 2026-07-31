@@ -28,7 +28,7 @@ function check(name, ok, detail = "") {
 
 const proc = spawn(
   process.execPath,
-  [SERVER, "--root", "cross-probe", "--state-dir", STATE, "--repo", REPO, "--max-workers", "4"],
+  [SERVER, "--root", "cross-probe", "--state-dir", STATE, "--repo", REPO, "--max-workers", "5"],
   { stdio: ["pipe", "pipe", "pipe"], env: process.env },
 );
 proc.stderr.on("data", (d) => console.error("[server stderr]", String(d).trim()));
@@ -72,7 +72,19 @@ const spawned = [];
 try {
   await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
   const ping = await callTool("ping");
-  check("两家 harness 都注册了", JSON.stringify(ping.harnesses) === '["claude","codex"]', JSON.stringify(ping.harnesses));
+  check("三家 harness 都注册了", JSON.stringify(ping.harnesses) === '["claude","codex","pi"]', JSON.stringify(ping.harnesses));
+
+  const models = await callTool("list_models");
+  check("list_models 拿到模型清单", (models.count ?? 0) > 0, `${models.count} 个`);
+
+  const profiles = await callTool("list_profiles");
+  const names = (profiles.profiles || []).map((p) => p.name);
+  check("内置 profile 可列出", names.includes("claude-impl") && names.includes("review-gemini"), names.join(","));
+  const gemini = (profiles.profiles || []).find((p) => p.name === "review-gemini");
+  check("profile 交叉核对了模型可用性", gemini?.model_available === true, String(gemini?.model_available));
+
+  const badProfile = await callTool("spawn_worker", { title: "nope0", task: "x", profile: "no-such-profile" });
+  check("未知 profile 被拒", badProfile.isError && badProfile.error === "unknown_profile", badProfile.error);
 
   const bogus = await callTool("spawn_worker", { title: "nope", task: "x", harness: "gemini" });
   check("未知 harness 被拒", bogus.isError && bogus.error === "unsupported_harness", bogus.error);
@@ -81,6 +93,9 @@ try {
   const cases = [
     { harness: "claude", title: "cross-claude", branch: "hg-cross-claude", token: "CLAUDE_SIDE_OK" },
     { harness: "codex", title: "cross-codex", branch: null, token: "CODEX_SIDE_OK" },
+    // pi 是唯一能按模型派活的：跨厂商评审主要靠它
+    // 用 profile 而不是自己拼参数——这是编排者该走的路
+    { profile: "review-gemini", harness: "pi", title: "cross-pi", branch: null, token: "PI_SIDE_OK" },
   ];
   for (const c of cases) {
     const r = await callTool("spawn_worker", {
@@ -89,15 +104,20 @@ try {
       task: `Reply with exactly the token ${c.token} and nothing else.`,
       purpose: "explore",
       ...(c.branch ? { branch: c.branch } : {}),
-      yolo: true,
+      ...(c.profile ? { profile: c.profile } : {}),
+      ...(c.profile ? {} : { yolo: true }),
     });
-    check(`spawn ${c.harness}`, !r.isError && !!r.worker_id, r.isError ? r.message : `${r.worker_id}`);
+    check(`spawn ${c.harness}${c.profile ? ` (profile ${c.profile})` : ""}`, !r.isError && !!r.worker_id, r.isError ? r.message : `${r.worker_id}`);
+    if (c.profile) check("profile 被记录", r.profile === c.profile, String(r.profile));
     if (r.worker_id) spawned.push({ ...c, worker_id: r.worker_id });
   }
 
   const listed = await callTool("list_workers");
   const kinds = (listed.workers || []).map((w) => w.harness).sort();
-  check("登记表记录了各自的 harness", JSON.stringify(kinds) === '["claude","codex"]', JSON.stringify(kinds));
+  check("登记表记录了各自的 harness", JSON.stringify(kinds) === '["claude","codex","pi"]', JSON.stringify(kinds));
+
+  const badModel = await callTool("spawn_worker", { title: "nope2", task: "x", harness: "claude", model: "gpt-5.6-sol" });
+  check("非 pi 指定模型被拒", badModel.isError && badModel.error === "model_not_supported", badModel.error);
 
   // 逐个等 + 读。两家的 transcript 定位与解析路径完全不同。
   for (const w of spawned) {

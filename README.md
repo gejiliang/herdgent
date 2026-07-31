@@ -58,7 +58,7 @@ Space 侧栏
 
 状态 rollup 是 herdr 自带的：一个 worker `blocked`，它的 pane、tab、workspace 全部显示 blocked。**跨会话总览因此不用建**——Space 侧栏看整体，Agent 侧栏看每个 worker，会话内部看 statusline。
 
-## 现状（0.2.0）
+## 现状（0.3.0）
 
 **跨厂商互审端到端跑通并实测**：`orchestrate` 起编排者 → 它派出 claude worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派 **codex** worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。
 
@@ -74,19 +74,30 @@ Space 侧栏
 | `lib/worker.mjs` | worker 生命周期：起、命名、隔离、回收 |
 | `lib/events.mjs` | herdr 事件订阅（长连接推送） |
 | `lib/mcp.mjs` | 零依赖 stdio JSON-RPC |
-| `lib/harness/` | 各家 harness 的适配：启动参数、提交语义、transcript 定位与解析 |
+| `lib/harness/` | claude / codex / pi 三家的适配：启动参数、提交语义、transcript 定位与解析 |
+| `lib/profiles.mjs` | worker profile：把 harness + 模型 + 权限标志打包成一个名字 |
 | `skills/orchestrate/SKILL.md` | **编排的全部语义**——prompt，不是代码 |
 
-### 八个动词
+### 十个动词
 
-`spawn_worker` · `list_workers` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `set_worker_limit` · `ping`
+`spawn_worker` · `list_workers` · `list_profiles` · `list_models` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `set_worker_limit` · `ping`
 
-`spawn_worker` 的 `harness` 参数选 `claude` 或 `codex`——**评审换一家厂商**是编排 skill 的硬规则。
+派活用 **profile**（`claude-impl` / `review-gemini` / `explore-fast` …）而不是自己拼参数。
+**评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
 
 它们**没有一个认识「评审」「实现」「互审」是什么意思**——`purpose` 对代码只是个字符串。
 谁评审谁、评审不过怎么办，全在 skill 里。这是 [`AGENTS.md`](AGENTS.md) 那条边界的实际检验。
 
-支持 **claude 与 codex** 两家 worker。
+### 三家 harness
+
+| | 能指定模型 | 提交语义 | session 引用 | 特别之处 |
+|---|---|---|---|---|
+| `claude` | ❌ 只跑自家 | 须补 enter | 自装钩子 | |
+| `codex` | ❌ 只跑自家 | 自动提交 | herdr 报 id | 目录信任必须注入 |
+| `pi` | ✅ **18 个模型** | 自动提交 | herdr 报 **path** | 只读用工具白名单，比 YOLO 精确 |
+
+pi 的模型经 quota-proxy 覆盖 Anthropic / OpenAI / Google / Moonshot / 阿里 / 智谱 / DeepSeek 七家——
+真正的跨厂商评审靠它。
 
 ## 为什么需要对账（一个具体例子）
 
