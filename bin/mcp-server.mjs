@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
 import { watchPaneStatus } from "../lib/events.mjs";
 import { tryHerdr, herdrText } from "../lib/herdr.mjs";
-import { lastAssistantText } from "../lib/transcript.mjs";
 
 const argv = process.argv.slice(2);
 function flag(name, fallback = null) {
@@ -23,9 +22,9 @@ const stateDirArg = flag("state-dir");
 if (stateDirArg) process.env.HERDGENT_STATE_DIR = stateDirArg;
 
 const registry = await import("../lib/registry.mjs");
-const { startManagedSession, findWorker, reclaimSession, sendAndConfirm } = await import(
-  "../lib/worker.mjs"
-);
+const { startManagedSession, findWorker, reclaimSession, sendAndConfirm, readWorkerResult } =
+  await import("../lib/worker.mjs");
+const { SUPPORTED } = await import("../lib/harness/index.mjs");
 
 const ROOT = flag("root", "adhoc");
 const REPO = flag("repo", process.cwd());
@@ -88,23 +87,28 @@ const TOOLS = [
       properties: {
         title: { type: "string", description: "Short task label shown in the herdr UI, e.g. auth-refactor" },
         task: { type: "string", description: "The full instruction handed to the agent as its opening prompt" },
-        harness: { type: "string", description: "Which agent CLI to run (v0.1 supports 'claude')" },
+        harness: {
+          type: "string",
+          description:
+            "Which agent CLI to run: 'claude' or 'codex'. Use a DIFFERENT vendor for review than the one that implemented — that independence is the whole point of cross-vendor review.",
+        },
         purpose: {
           type: "string",
           description: "What kind of work this is: implement, review, explore, or search. Recorded and displayed; herdgent does not interpret it.",
         },
         branch: { type: "string", description: "Git branch name; when given, the worker runs in its own git worktree" },
         cwd: { type: "string", description: "Repository path; defaults to the orchestration's repo" },
-        yolo: { type: "boolean", description: "Skip the agent's permission prompts (--dangerously-skip-permissions)" },
+        yolo: { type: "boolean", description: "Skip the agent's permission prompts entirely" },
       },
       required: ["title", "task"],
     },
     handler: async (args) => {
       const harness = args.harness || "claude";
-      if (harness !== "claude") {
-        throw Object.assign(new Error(`v0.1 only supports harness 'claude', got '${harness}'`), {
-          code: "unsupported_harness",
-        });
+      if (!SUPPORTED.includes(harness)) {
+        throw Object.assign(
+          new Error(`unsupported harness '${harness}' (supported: ${SUPPORTED.join(", ")})`),
+          { code: "unsupported_harness" },
+        );
       }
 
       // 闸在 spawn 前查，不在 registry 里做——登记发生在 startManagedSession 内部，
@@ -198,9 +202,15 @@ const TOOLS = [
   },
   {
     name: "ping",
-    description: "Health check for the herdgent orchestration channel. Returns a fixed marker plus this orchestration's id.",
+    description: "Health check for the herdgent orchestration channel. Returns a fixed marker, this orchestration's id, and which harnesses are available.",
     inputSchema: { type: "object", properties: {}, required: [] },
-    handler: async () => ({ ok: true, marker: "HERDGENT_MCP_ALIVE", root: ROOT, pid: process.pid }),
+    handler: async () => ({
+      ok: true,
+      marker: "HERDGENT_MCP_ALIVE",
+      root: ROOT,
+      pid: process.pid,
+      harnesses: SUPPORTED,
+    }),
   },
   {
     name: "herdr_status",
@@ -257,21 +267,15 @@ const TOOLS = [
         return { worker_id: w.slug, mode, screen };
       }
 
-      if (!w.transcript_path) {
-        // 钩子还没回填。这不是错误——刚起的 worker 就是这样，重试即可。
-        throw Object.assign(
-          new Error(`worker '${w.slug}' has no transcript yet; it may still be starting`),
-          { code: "transcript_not_ready" },
-        );
-      }
-      try {
-        const t = lastAssistantText(w.transcript_path);
-        return { worker_id: w.slug, title: w.title, purpose: w.purpose, status: w.status, ...t };
-      } catch (e) {
-        throw Object.assign(new Error(`cannot read transcript: ${e.message}`), {
-          code: "transcript_unreadable",
-        });
-      }
+      const t = readWorkerResult(w.slug);
+      return {
+        worker_id: w.slug,
+        title: w.title,
+        purpose: w.purpose,
+        harness: w.harness,
+        status: w.status,
+        ...t,
+      };
     },
   },
   {
@@ -288,7 +292,7 @@ const TOOLS = [
     },
     handler: async (args) => {
       const w = mustFindWorker(args.worker_id);
-      const r = sendAndConfirm(w.pane_id, args.text);
+      const r = sendAndConfirm(w.pane_id, args.text, { harness: w.harness || "claude" });
       if (r.submitted) {
         // 基线取【发送前】的 seq，不能取 seq_after：sendAndConfirm 一观察到变化就返回，
         // 而一个极短的任务在那之前就跑完了——拿终态当基线等于要求「比终态更新」，

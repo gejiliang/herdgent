@@ -30,18 +30,28 @@
 - 结果从 `read_worker` 拿（默认 `mode=result`，读的是 worker 的最后一条回复）。
   worker 不知道自己在被编排，所以别指望它按格式汇报——你要的结构化信息，写进派给它的任务里。
 
-## 评审
+## 评审：换一家厂商
 
-**实现者不评审自己的活。** 派一个独立的 worker 做 review，给它：
+**实现者不评审自己的活，而且 reviewer 要换一家 harness。**
 
-- 完整的 diff（你自己用 `git diff` 取，不要让 reviewer 去实现者的 worktree 里翻）
+`spawn_worker` 的 `harness` 参数目前支持 `claude` 和 `codex`。claude 实现的就派 codex 评审，
+反之亦然——**不同厂商的模型有不同的盲区**，同一家评自己写的东西，会一起漏掉同一类问题。
+这是 herdgent 存在的理由：单家编排 Claude Code 自己的 dynamic workflow 就够了。
+
+给 reviewer 的是：
+
+- 完整的 diff（你自己用 `git diff` 取，落到一个文件里让它读，**不要让 reviewer 去实现者的 worktree 里翻**）
 - 验收标准（当初派活时定的那个）
 
 reviewer **只报告问题，不改代码**。要改就把问题作为新任务派回给实现者，或者派个新的实现者。
 
-> v0.1 只有 claude 一家 harness，所以「跨厂商互审」目前退化为**跨会话互审**：
-> reviewer 是一个全新的会话，没有实现者的上下文和思维定式，这仍然是有效的独立检查。
-> 等接入 codex 之后再升级成真正的跨厂商。
+## 两家 harness 的差别
+
+你不需要关心底层差异（herdgent 都处理了），但有两点影响你怎么派活：
+
+- **codex 的任务默认在只读沙箱里跑。** 要它改文件就得带 `yolo: true`，否则它会卡在审批上。
+- **worker 起来后 herdr 要几秒才认到 codex 的会话身份**，所以刚 spawn 完立刻 `read_worker`
+  可能报 `transcript_not_ready`。这不是错误——先 `wait_for_worker`，或者过几秒重试。
 
 ## worker 回报 `blocked` 时
 
