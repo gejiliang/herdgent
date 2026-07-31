@@ -5,10 +5,11 @@
 
 ## 不可逆约束
 
-- **只管自己起的会话。** 只操作本插件 `workspace create` 出来的 workspace；**绝不按 label / agent 名去全局搜索**。GG 手起的会话（SPQR、mxweb、worldquant……）永远不在射程内。边界是结构性的，不是「记得过滤」。
-- **零落盘到项目仓库。** 状态只写 `HERDR_PLUGIN_STATE_DIR`；给会话的上下文只经启动 argv（`--settings` / `--mcp-config`）注入，被管理的项目目录一个字节都不改。
-- **不在 GG 的 `default` herdr 会话里做实验**——那是他正在干活的地方。用下面的隔离配方。
+- **只管自己起的会话。** 只操作本插件建出来的 workspace；**绝不按 label / agent 名去全局搜索**。GG 手起的会话（SPQR、mxweb、worldquant……）永远不在射程内。边界是结构性的，不是「记得过滤」。编排会一次起一批 worker，这条只会更吃紧。
+- **不改被管理项目的源码与配置。** herdgent 自己的状态只写 `HERDR_PLUGIN_STATE_DIR`；给会话的上下文只经启动 argv（`--settings` / `--mcp-config`）注入。
+  唯一的例外是 **git worktree**——编排必然要在项目里建 checkout，但只能经 `herdr worktree create` 建、经 `herdr worktree remove` 收，不手工往项目目录写任何文件。
 - **主键只用 harness 侧 session id**（claude 的 UUID）。herdr 的 `workspace_id` / `pane_id` / `terminal_id` 都会失效或变化，只能当本次寻址的临时句柄。
+- **破坏性实验用命名会话**（配方见下）。日常 dogfood 就在 `default` 里跑——插件本来就是用户全局的，而且让归属边界从第一天就 load-bearing 正是目的。只有「可能起一堆东西 / 可能删错东西」的实验才需要隔离。
 
 ## 开发隔离配方（动手前先读）
 
@@ -47,14 +48,18 @@ herdgent 是 **herdr plugin + 外部进程**，不 fork herdr、不改 herdr 核
 
 理由：herdr 在快速迭代（0.7.5 才刚加 `[[startup]]` 与整套 agent CLI），fork 的长期成本是跟上游 diverge，而 plugin 路线可以 `herdr plugin install` 分发。
 
-## 编排层的刹车
+## 编排层的边界
 
-- 形状限死在「起会话 → 发提示 → 等状态 → 读输出 → 决定下一步」。
-- **一旦开始出现「角色 / 工作流 / 协议 / 模板」这类名词就停手**——SPQR v2 的编排层 13k 行就是这些名词一个个长出来的，最后整层退役。
-- **token 账单从第一版就要可见**：并行会话烧钱是静默的。
+herdgent 的产品形态就是跨 harness 编排（见 README），所以「不做编排」不是纪律。纪律是**编排的语义不进 herdgent 的代码**。
+
+- **代码只提供动词**：起 worker、派任务、收结果、取消、列出。仅此而已。
+- **语义活在 prompt / skill / workflow 脚本里**——谁是 tech lead、什么归实现什么归评审、跨厂商互审怎么配对，全部是编排者自己的事，herdgent 不认识这些概念。
+- **判据**：herdgent 代码里出现 `Role` / `Workflow` / `Protocol` / `Template` 这类**类型定义**就是越界。prompt 里写满角色分工是正常的。
+  参照物：omnigent 的 polly 有完整的多 agent 编排能力，而它的 `config.yaml` 里真正的代码只有「声明 6 个子 agent + 3 条 guardrail + 4 个开关」，其余整段是自然语言 prompt。SPQR v2 的 13k 行死在把同样的语义固化成了类型。
+- **spawn 必须有硬上限**，写死在工具里，不做成配置。参照：polly 每轮 6 个派发，Claude Code dynamic workflow 是 16 并发 / 1000 总量，Codex 是 `max_threads 6` / `max_depth 1`。并行会话失控是静默的。
 
 ## 代码约定
 
-- Node ESM（`.mjs`），**零 npm 依赖**——这样 `herdr plugin link` 不需要 `[[build]]` 步骤，改完下次调用即生效。
+- Node ESM（`.mjs`），**零 npm 依赖**。理由是 `herdr plugin link` 不跑 `[[build]]`，零依赖才能改完下次调用即生效；不是洁癖。真要引入依赖，先算清楚它值不值一个 build 步骤。
 - `lib/herdr.mjs` 是唯一与 herdr 对话的地方；错误分三类且不压平：`spawn_failed`（herdr 没跑）/ `bad_output`（协议变了）/ herdr 自己的错误码。
 - 钩子进程（`bin/hook-*.mjs`）**绝不能抛异常**——它跑在 harness 启动路径上，抛了会拖垮会话。失败要 `auditLog` 留痕，不能静默。
