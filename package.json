@@ -1,0 +1,9 @@
+{
+  "name": "herdgent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Meta-harness for Herdr: starts, tracks and orchestrates managed agent sessions.",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=20.11" }
+}

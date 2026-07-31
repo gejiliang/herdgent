@@ -1,0 +1,26 @@
+# Herdgent — Herdr 插件清单
+# 契约来源：herdr.dev 作者文档 + 0.7.5 二进制校验器报错串（见 docs/findings-2026-07-31.md）
+id = "herdgent"
+name = "Herdgent"
+version = "0.0.1"
+description = "Meta-harness for Herdr: starts, tracks and orchestrates managed agent sessions."
+# [[startup]] 与 agent start/prompt/wait CLI 门面均为 0.7.5 (2026-07-21) 新增
+min_herdr_version = "0.7.5"
+platforms = ["macos"]
+
+# server 启动与 live handoff 后跑一次：herdr 只恢复布局不恢复运行时，
+# 会留下报 idle/ready 的幽灵 agent 记录，必须在这里对账。
+[[startup]]
+command = ["node", "bin/reconcile.mjs"]
+
+[[actions]]
+id = "session-start"
+title = "Herdgent: start managed session"
+contexts = ["workspace"]
+command = ["node", "bin/session-start.mjs"]
+
+[[actions]]
+id = "session-list"
+title = "Herdgent: list managed sessions"
+contexts = ["workspace"]
+command = ["node", "bin/session-list.mjs"]
