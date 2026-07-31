@@ -97,5 +97,6 @@ codex 及其他 harness · 成本 · 权限策略 · 沙箱 · 总览 UI（herdr
 | SessionStart 钩子在 `agent start` 期间就回调 | 登记先于起 agent |
 | `worktree remove` 不删分支 | 补 `git branch -D` |
 | `--mcp-config` 吞掉后面的位置参数 | 初始 prompt 放最后 |
+| **agent 参数不能含换行** | 压成单行，原文另存文件；编排任务必然多行，必踩 |
 | 终态是 `done` 不是 `idle` | 等待条件包含 done |
 | 被起的会话继承父进程环境 | 起 runtime 前擦 `CLAUDE_CODE_*` |

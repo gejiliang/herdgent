@@ -58,17 +58,31 @@ Space 侧栏
 
 状态 rollup 是 herdr 自带的：一个 worker `blocked`，它的 pane、tab、workspace 全部显示 blocked。**跨会话总览因此不用建**——Space 侧栏看整体，Agent 侧栏看每个 worker，会话内部看 statusline。
 
-## 现状（0.0.1）
+## 现状（0.1.0）
 
-最小闭环已实测跑通：起受管会话 → SessionStart 钩子回填 harness session id → 重启后对账埋葬幽灵。
-manifest 已经过 herdr 0.7.5 校验器实测，`[[startup]]` 与两个 action 均验证被真的调用。
+**端到端跑通并实测**：`orchestrate` 起编排者 → 它并行派出 3 个 worker（两个实现各在自己的 git worktree 里、一个独立会话做评审）→ 跨会话互审通过 → 各自在自己分支上提交，主仓库零污染。
 
-- `bin/session-start.mjs` — 起一个受管会话（plugin action）
-- `bin/reconcile.mjs` — `[[startup]]` 对账
-- `bin/session-list.mjs` — 列出受管会话
-- `bin/hook-claude.mjs` — Claude Code SessionStart 钩子
+| | |
+|---|---|
+| `bin/orchestrate.mjs` | 起 orchestrator 会话并注入编排工具（plugin action） |
+| `bin/mcp-server.mjs` | 编排工具通道，orchestrator 的 stdio 子进程 |
+| `bin/session-start.mjs` | 起一个独立的受管会话（plugin action） |
+| `bin/reconcile.mjs` | `[[startup]]` 对账 |
+| `bin/hook-claude.mjs` | Claude Code SessionStart 钩子 |
+| `lib/worker.mjs` | worker 生命周期：起、命名、隔离、回收 |
+| `lib/events.mjs` | herdr 事件订阅（长连接推送） |
+| `lib/mcp.mjs` | 零依赖 stdio JSON-RPC |
+| `lib/transcript.mjs` | 从 transcript 读 worker 的结果 |
+| `skills/orchestrate/SKILL.md` | **编排的全部语义**——prompt，不是代码 |
 
-编排层尚未开始。
+### 八个动词
+
+`spawn_worker` · `list_workers` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `set_worker_limit` · `ping`
+
+它们**没有一个认识「评审」「实现」「互审」是什么意思**——`purpose` 对代码只是个字符串。
+谁评审谁、评审不过怎么办，全在 skill 里。这是 [`AGENTS.md`](AGENTS.md) 那条边界的实际检验。
+
+只支持 claude worker；codex 留到 v0.2。
 
 ## 为什么需要对账（一个具体例子）
 

@@ -29,10 +29,16 @@ const { startManagedSession, findWorker, reclaimSession, sendAndConfirm } = awai
 
 const ROOT = flag("root", "adhoc");
 const REPO = flag("repo", process.cwd());
-// 并发闸有默认值但可配：每次编排的规模不一样，写死会挡住合理的大扇出。
-// 值由 orchestrate action 在启动时按用户选择传进来，落在 registry 里。
+// 并发闸有默认值但可配。plugin action invoke 【没有传参机制】，所以「每次启动前选」
+// 不能靠 action 参数——改成运行时可调：启动值来自插件配置，orchestrator 可以用
+// set_worker_limit 改（用户一句「这次最多开 3 个」即可）。值存在 registry 里，
+// 每次 spawn 现读，所以改完立刻生效。
 const DEFAULT_MAX_WORKERS = 6;
-const MAX_WORKERS = Number(flag("max-workers", DEFAULT_MAX_WORKERS)) || DEFAULT_MAX_WORKERS;
+const START_MAX_WORKERS = Number(flag("max-workers", DEFAULT_MAX_WORKERS)) || DEFAULT_MAX_WORKERS;
+
+function workerLimit() {
+  return registry.getOrchestration(ROOT)?.max_workers ?? START_MAX_WORKERS;
+}
 
 // 日志【绝不能】走 stdout——那是 JSON-RPC 的信道，混进一行非协议内容就毁掉整个会话。
 function log(line) {
@@ -103,12 +109,13 @@ const TOOLS = [
 
       // 闸在 spawn 前查，不在 registry 里做——登记发生在 startManagedSession 内部，
       // 那时容器已经建好了，再拒绝就得回滚。
+      const limit = workerLimit();
       const before = registry.countLive(ROOT);
-      if (before.inRoot >= MAX_WORKERS) {
+      if (before.inRoot >= limit) {
         throw Object.assign(
           new Error(
-            `this orchestration already has ${before.inRoot} live workers (limit ${MAX_WORKERS}); ` +
-              `finish or cancel some before spawning more`,
+            `this orchestration already has ${before.inRoot} live workers (limit ${limit}); ` +
+              `finish or cancel some, or raise the limit with set_worker_limit`,
           ),
           { code: "worker_limit_reached" },
         );
@@ -131,12 +138,12 @@ const TOOLS = [
       const result = {
         ...publicView(entry),
         live_in_this_orchestration: after.inRoot,
-        limit: MAX_WORKERS,
+        limit,
         live_across_all_orchestrations: after.global,
       };
       // 全局数不做硬拦截（「本编排只起了 2 个却被拒」会让人莫名其妙），
       // 但机器上一共开着多少必须一路报到 orchestrator 面前。
-      if (after.global > MAX_WORKERS) {
+      if (after.global > limit) {
         result.warning = `${after.global} agents are live across all orchestrations on this machine`;
       }
       return result;
@@ -153,8 +160,39 @@ const TOOLS = [
       return {
         workers: rows.map(publicView),
         live: counts.inRoot,
-        limit: MAX_WORKERS,
+        limit: workerLimit(),
         live_across_all_orchestrations: counts.global,
+      };
+    },
+  },
+  {
+    name: "set_worker_limit",
+    description:
+      "Change how many workers this orchestration may run at once. Ask the human before raising it — every worker is a real agent burning their quota. Lowering it never kills running workers, it only blocks new ones.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Maximum concurrent live workers for this orchestration" },
+      },
+      required: ["limit"],
+    },
+    handler: async (args) => {
+      const n = Math.floor(Number(args.limit));
+      if (!Number.isFinite(n) || n < 1 || n > 50) {
+        throw Object.assign(new Error(`limit must be between 1 and 50, got ${args.limit}`), {
+          code: "bad_limit",
+        });
+      }
+      const previous = workerLimit();
+      registry.putOrchestration(ROOT, { max_workers: n });
+      const counts = registry.countLive(ROOT);
+      return {
+        limit: n,
+        previous,
+        live: counts.inRoot,
+        ...(counts.inRoot > n
+          ? { note: `${counts.inRoot} workers are already live; none were stopped, but no new ones can start until it drops below ${n}` }
+          : {}),
       };
     },
   },
@@ -433,7 +471,7 @@ function waitForWorkers(workerIds) {
 // 登记本次编排的规模上限，让 list_workers / 事后排查都能看到当时选了多少。
 try {
   registry.putOrchestration(ROOT, {
-    max_workers: MAX_WORKERS,
+    max_workers: registry.getOrchestration(ROOT)?.max_workers ?? START_MAX_WORKERS,
     repo: REPO,
     started_at: new Date().toISOString(),
   });
