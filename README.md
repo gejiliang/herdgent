@@ -85,6 +85,11 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 影响所有正在用的会话——隔一个显式的 install 步骤，改动什么时候生效由人决定。
 **已经开着的会话不会加载新版本**，新开会话才生效。
 
+> herdr 会另外建两个**空目录**并在 `plugin list` 里显示：
+> `~/.local/state/herdr/plugins/herdgent` 与 `~/.config/herdr/plugins/config/herdgent`。
+> 那是它启动插件命令前的固定动作（要注入 `HERDR_PLUGIN_STATE_DIR`），删了下次调用还会回来。
+> **herdgent 不读也不写那里**——所有落盘都在 `~/.herdgent`。
+
 装完就是这个流程：**在你已经聊清楚需求的那个会话里**，直接说「用 herdgent 并行做这几件事」。
 不用另起一个空白的编排者会话把需求重讲一遍——需求的上下文就在当前会话里。
 

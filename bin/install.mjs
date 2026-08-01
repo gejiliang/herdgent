@@ -130,8 +130,11 @@ if (!existsSync(readme)) {
 console.log(`✓ config → ${configRoot()}（profiles.json、workflows/，install 不覆盖）`);
 console.log(`✓ state  → ${stateRoot()}`);
 
-// 0.4.0 之前 state/config 跟着 herdr 的插件目录走。不自动搬——把两份都当真的
-// 合并出来的表会很诡异；只提示，让人自己看。
+// 0.4.0 之前 state/config 跟着 herdr 的插件目录走。只在【有内容】时提示，
+// 不自动搬——把两份都当真的合并出来的表会很诡异。
+//
+// 空目录不提示也删不掉：herdr 每次启动插件命令前都会重建它们（它要注入
+// HERDR_PLUGIN_STATE_DIR）。herdgent 不读也不写那里，留着无害。
 for (const [kind, dir] of Object.entries(legacyPaths())) {
   if (!existsSync(dir)) continue;
   const leftover = readdirSync(dir).filter((f) => f !== ".DS_Store");
