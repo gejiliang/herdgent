@@ -10,6 +10,6 @@
   },
   "scripts": {
     "test": "node test/concurrent-registry.mjs && node test/identity.mjs",
-    "install-mcp": "node bin/install-mcp.mjs"
+    "install-local": "node bin/install.mjs"
   }
 }

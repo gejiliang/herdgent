@@ -63,8 +63,16 @@ Space 侧栏
 **装一次，之后每个会话都能派活**：
 
 ```sh
-node bin/install-mcp.mjs        # 打印各 harness 的注册命令，自己挑一条跑
+npm run install-local           # 同步到 ~/.herdgent 并注册 MCP + herdr 插件
+node bin/install.mjs --dry-run  # 先看它要做什么
+node bin/install.mjs --print    # 只打印命令，自己去跑
 ```
+
+安装副本在 **`~/.herdgent`**，与开发工作副本分开。MCP 配置里存的是绝对路径，
+指向工作副本的话改一行代码就立刻影响所有正在用的会话——隔一个显式的 install
+步骤，改动什么时候生效由人决定。`~/.herdgent/INSTALLED.json` 记着装的是哪个 commit。
+
+**已经开着的会话不会加载新版本**，新开会话才生效。
 
 装完就是这个流程：**在你已经聊清楚需求的那个会话里**，直接说「用 herdgent 并行做这几件事」。
 不用另起一个空白的编排者会话把需求重讲一遍——需求的上下文就在当前会话里。
