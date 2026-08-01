@@ -6,7 +6,7 @@
 //
 // state-dir 必须显式传：HERDR_PLUGIN_STATE_DIR 只注入插件命令，
 // 【不会】传进插件启动的会话，而这个进程是被那个会话拉起来的（findings 第五节）。
-import { appendFileSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
@@ -28,6 +28,7 @@ const { startManagedSession, findWorker, reclaimSession, sendAndConfirm, readWor
   await import("../lib/worker.mjs");
 const { SUPPORTED, getHarness } = await import("../lib/harness/index.mjs");
 const { allProfiles, applyProfile } = await import("../lib/profiles.mjs");
+const { allPresets, getPreset, render, missingInputs } = await import("../lib/presets.mjs");
 
 // ---- 我是谁、这次编排叫什么 ----
 //
@@ -324,6 +325,40 @@ const TOOLS = [
     },
   },
   {
+    name: "list_presets",
+    description:
+      "List orchestration presets — a preset is a whole multi-worker sequence written down as data: who implements, who reviews, whose output feeds whom. Prefer running a preset over assembling the sequence yourself; the rules that matter (reviewer is a different vendor, implementers get their own worktree) are baked into the preset, not left to you to remember.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    handler: async () => ({
+      presets: Object.entries(allPresets()).map(([name, p]) => ({
+        name,
+        description: p.description,
+        inputs: p.inputs ?? {},
+        steps: (p.steps ?? []).map((st) => ({ id: st.id, profile: st.profile, attach: st.attach })),
+        parallel: !!p.parallel,
+        source: p.source,
+      })),
+    }),
+  },
+  {
+    name: "run_preset",
+    description:
+      "Run an orchestration preset end to end: it spawns each step's worker, waits for it, hands the declared artifact (a diff, a previous worker's answer) to the next step, and returns every step's result. Blocks until done — that is expected, do not poll it. If any worker comes back 'blocked' the run stops there and tells you which step, so a human can step in.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        preset: { type: "string", description: "Preset name from list_presets" },
+        inputs: {
+          type: "object",
+          description: "Values for the preset's declared inputs (see list_presets)",
+        },
+        base_ref: { type: "string", description: "Git ref that diffs are taken against (default: main)" },
+      },
+      required: ["preset", "inputs"],
+    },
+    handler: (args) => runPreset(args),
+  },
+  {
     name: "list_profiles",
     description:
       "List the worker profiles available to spawn_worker. A profile bundles harness + model + flags under one name, so you pick a role instead of assembling five parameters. Model availability is cross-checked against what pi can actually run right now.",
@@ -557,6 +592,42 @@ const TOOLS = [
   },
 ];
 
+// 预设引擎的两个「取产物」动作。刻意只有这两个，且都是机械操作：
+//   diff_of:<step-id>   —— 那一步的 worktree 分支相对 base 的 diff
+//   diff_of:<git-ref>   —— 直接给 git diff 的参数
+//   result_of:<step-id> —— 那一步 worker 的最后一条回复
+// 引擎不知道 diff 是拿来干嘛的，它只负责落成文件、把路径交给下一步。
+function resolveArtifact(spec, ctx) {
+  const [kind, rest] = String(spec).split(":", 2);
+  const dir = join(registry.stateDir(), "artifacts", ctx.runId);
+  mkdirSync(dir, { recursive: true });
+
+  if (kind === "diff_of") {
+    const upstream = ctx.steps[rest];
+    const ref = upstream?.branch ? `${ctx.baseRef}..${upstream.branch}` : rest;
+    const out = runSafe(["git", "-C", ctx.repo, "diff", ref]);
+    if (out == null) {
+      throw Object.assign(new Error(`git diff ${ref} failed in ${ctx.repo}`), { code: "diff_failed" });
+    }
+    const path = join(dir, `${rest.replace(/[^\w.-]/g, "_")}.diff`);
+    writeFileSync(path, out);
+    return { path, bytes: out.length };
+  }
+
+  if (kind === "result_of") {
+    const upstream = ctx.steps[rest];
+    if (!upstream) throw Object.assign(new Error(`no step '${rest}' to take a result from`), { code: "bad_artifact" });
+    const r = readWorkerResult(upstream.worker_id);
+    const path = join(dir, `${rest.replace(/[^\w.-]/g, "_")}.md`);
+    writeFileSync(path, r.text ?? "");
+    return { path, bytes: (r.text ?? "").length };
+  }
+
+  throw Object.assign(new Error(`unknown artifact '${spec}' (use diff_of:<id> or result_of:<id>)`), {
+    code: "bad_artifact",
+  });
+}
+
 const SETTLED = new Set(["done", "idle", "blocked"]);
 // wait 的兜底上限。不是正常退出路径——正常靠事件。它只保证「判据写错」不会变成永久挂起。
 const WAIT_CEILING_MS = 30 * 60 * 1000;
@@ -588,6 +659,105 @@ function settledNow(slug) {
 // 【一个 pane 一条连接】是实测约束（events.mjs 文件头）：pane.agent_status_changed
 // 必填 pane_id，而订阅数组里有一个不存在的 pane 就整个请求被拒。合订会让
 // 一个 worker 的死亡牵连所有其他 worker 的等待。
+// 预设引擎。【刻意保持哑】：只做四件事——渲染任务文本、派活、等完成、取产物。
+// 它不知道 impl / review 是什么意思，换个预设就干完全不同的事。
+async function runPreset({ preset: name, inputs = {}, base_ref: baseRef = "main" }) {
+  assertCanSpawn();
+  const preset = getPreset(name);
+
+  // 先检查参数再动手：跑到一半才发现缺输入，前面烧掉的额度回不来。
+  const missing = missingInputs(preset, inputs);
+  if (missing.length) {
+    throw Object.assign(
+      new Error(`preset '${name}' needs: ${missing.join(", ")} (see list_presets for what each means)`),
+      { code: "missing_inputs" },
+    );
+  }
+
+  const runId = `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  const ctx = { runId, repo: REPO, baseRef, steps: {} };
+  const results = [];
+  log(`preset ${name} start run=${runId} steps=${preset.steps.length}`);
+
+  for (const step of preset.steps) {
+    const vars = { ...inputs };
+
+    // 产物：上一步的 diff / 回复，落成文件，把路径给下一步。
+    let attached = null;
+    if (step.attach) {
+      const spec = render(step.attach, vars);
+      attached = resolveArtifact(spec, ctx);
+      vars.attached = attached.path;
+    }
+
+    const title = render(step.title || step.id, vars);
+    const branch = step.branch ? render(step.branch, vars) : null;
+    const task = render(step.task, vars);
+
+    let entry;
+    try {
+      const spec = applyProfile({ profile: step.profile });
+      entry = startManagedSession({
+        cwd: REPO,
+        task,
+        harness: spec.harness || "claude",
+        role: "worker",
+        root: ROOT,
+        parent: ROOT,
+        title,
+        purpose: step.id,
+        branch,
+        yolo: !!spec.yolo,
+        model: spec.model || null,
+        readOnly: !!spec.read_only,
+      });
+    } catch (e) {
+      results.push({ step: step.id, ok: false, error: e.code || "spawn_failed", message: e.message });
+      log(`preset ${name} step ${step.id} spawn failed: ${e.message}`);
+      return { run: runId, preset: name, completed: false, stopped_at: step.id, results };
+    }
+
+    ctx.steps[step.id] = { worker_id: entry.slug, branch, title };
+    const waited = await waitForWorkers([entry.slug]);
+    const settled = waited.settled?.[0];
+
+    // blocked = 那个 worker 停在审批或提问界面上，不处理就永远不动。
+    // 引擎不替人做决定：停下来，报清楚卡在哪一步。
+    if (settled?.status === "blocked") {
+      results.push({ step: step.id, ok: false, worker_id: entry.slug, status: "blocked", title });
+      log(`preset ${name} stopped: step ${step.id} blocked`);
+      return {
+        run: runId,
+        preset: name,
+        completed: false,
+        stopped_at: step.id,
+        reason: "a worker needs a human — read_worker mode=screen to see what it is asking",
+        results,
+      };
+    }
+
+    let text = "";
+    try {
+      text = readWorkerResult(entry.slug).text ?? "";
+    } catch (e) {
+      text = `(结果暂时读不到：${e.code})`;
+    }
+    results.push({
+      step: step.id,
+      ok: true,
+      worker_id: entry.slug,
+      title,
+      profile: step.profile,
+      branch,
+      attached: attached?.path,
+      result: text,
+    });
+    log(`preset ${name} step ${step.id} done worker=${entry.slug}`);
+  }
+
+  return { run: runId, preset: name, completed: true, results };
+}
+
 function waitForWorkers(workerIds) {
   const all = registry.list().filter((s) => s.role === "worker" && s.root === ROOT);
   const targets = (

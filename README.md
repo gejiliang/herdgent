@@ -77,7 +77,8 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 ├── INSTALLED.json          装的是哪个 commit、当时工作区脏不脏
 ├── config/                 ← install 绝不动
 │   ├── profiles.json       自定义 worker profile（键名与内置同名即覆盖）
-│   └── workflows/*.md      自定义编排工作流
+│   ├── presets.json        自定义编排预设
+│   └── workflows/*.md      自定义编排工作流（prompt 形式）
 └── state/                  registry.json、各会话的 settings、日志
 ```
 
@@ -117,6 +118,27 @@ command = "herdgent.orchestrate"
 description = "start herdgent orchestrator"
 ```
 
+### 编排预设
+
+**预设是一整套编排写成的数据**：谁实现、谁评审、谁的产物喂给谁。
+`run_preset` 按它派活、等完成、把 diff 或上一步的回复传给下一步。
+
+```
+list_presets                        看有哪些
+run_preset(preset, inputs)          跑
+```
+
+内置 `impl-and-review`（实现 → 换厂商评审）和 `fanout-review`（三家同时评审同一份 diff）。
+用户可在 `config/presets.json` 覆盖或新增。
+
+**执行引擎刻意是哑的**：它只认识「派活、等完成、取产物、塞进下一步」四个动作，
+不知道「评审」是什么意思、也不知道为什么 reviewer 要换厂商——那些语义全在预设数据里。
+换个预设它就干完全不同的事。这是 [`AGENTS.md`](AGENTS.md) 那条编排层边界的落法：
+语义从 prompt 挪进了结构化配置，但仍然没进代码。
+
+取产物只有两个动作，都是机械的：`diff_of:<step>`（那步分支相对 base 的 diff）
+和 `result_of:<step>`（那步 worker 的最后回复）。
+
 ### 自定义工作流
 
 `config/workflows/<name>.md` 每个文件就是一份工作流，编排者用
@@ -133,7 +155,7 @@ description = "start herdgent orchestrator"
 （查 registry 比对 `HERDR_PANE_ID`），是的话就不暴露 `spawn_worker` 那一组。
 比整个屏蔽掉全局 MCP 温和——worker 仍能用你其它的 MCP 服务。
 
-## 现状（0.5.0）
+## 现状（0.6.0）
 
 **跨厂商互审端到端跑通并实测**：`orchestrate` 起编排者 → 它派出 claude worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派 **codex** worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。
 
@@ -151,14 +173,16 @@ description = "start herdgent orchestrator"
 | `lib/mcp.mjs` | 零依赖 stdio JSON-RPC |
 | `lib/harness/` | claude / codex / pi 三家的适配：启动参数、提交语义、transcript 定位与解析 |
 | `lib/profiles.mjs` | worker profile：把 harness + 模型 + 权限标志打包成一个名字 |
+| `lib/presets.mjs` | 编排预设：把一整套多 worker 序列写成数据 |
 | `lib/paths.mjs` | 所有落盘位置的唯一解析处——三条启动路径必须落到同一处 |
 | `bin/install.mjs` | 同步到 `~/.herdgent` 并注册 MCP + herdr 插件 |
 | `skills/orchestrate/SKILL.md` | **编排的全部语义**——prompt，不是代码 |
 
-### 十二个动词
+### 十四个动词
 
 `spawn_worker` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `list_workers`
 `set_worker_limit` · `list_profiles` · `list_models` · `orchestration_guide` · `herdr_status` · `ping`
+`list_presets` · `run_preset`
 
 派活用 **profile**（`claude-impl` / `review-gemini` / `explore-fast` …）而不是自己拼参数。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。

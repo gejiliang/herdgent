@@ -1,6 +1,6 @@
 {
   "name": "herdgent",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Meta-harness for Herdr: starts, tracks and orchestrates managed agent sessions.",
@@ -9,7 +9,7 @@
     "node": ">=20.11"
   },
   "scripts": {
-    "test": "node test/concurrent-registry.mjs && node test/identity.mjs",
+    "test": "node test/concurrent-registry.mjs && node test/identity.mjs && node test/presets.mjs",
     "install-local": "node bin/install.mjs"
   }
 }
