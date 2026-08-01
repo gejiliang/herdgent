@@ -73,7 +73,6 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 ```
 ~/.herdgent/
 ├── bin/ lib/ skills/       代码 + 两份 playbook       ← install 会覆盖
-├── commands/               /rex 与 /fox 的命令模板
 ├── herdr-plugin.toml
 ├── INSTALLED.json          装的是哪个 commit、当时工作区脏不脏
 ├── config/                 ← install 绝不动
@@ -101,8 +100,13 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 ```
 
 `/rex` 走开发编排（worktree + 分支 + 换厂商评审），`/fox` 走只读研究（当前 space 加 tab）。
-也可以不用命令，直接说「用 herdgent 并行做这几件事」——命令只是把 playbook 的入口
-和几条硬规则先塞给它，省得它自己摸索。
+也可以不用命令，直接说「用 herdgent 并行做这几件事」。
+
+两条命令在 **claude / codex / pi 三家都能用**：三家的 skill 格式是一样的
+（frontmatter + markdown），只是目录不同。install 用**唯一真源 + 软链**——
+真源是 `~/.herdgent/skills`，往各 harness 的 skills 目录建软链而不是拷贝，
+拷贝会变成几份各自漂移的副本。只装到**已经存在**的 harness 目录，也不碰
+用户自己放在那里的同名 skill。
 
 **需求的上下文就在当前会话里**，不用另起一个空白的编排者会话重讲一遍。
 

@@ -9,7 +9,17 @@
 //   node bin/install.mjs            装/更新 ~/.herdgent 并注册 MCP
 //   node bin/install.mjs --dry-run  只看要做什么
 //   node bin/install.mjs --print    只打印注册命令，自己去跑
-import { cpSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+  lstatSync,
+  symlinkSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -23,7 +33,7 @@ const printOnly = argv.includes("--print");
 
 // 只搬运行时需要的东西。test/ 和 docs/ 不进安装副本——它们只在开发树里有意义，
 // 而 test/ 里那些会真起会话的脚本尤其不该出现在用户装好的目录里。
-const RUNTIME = ["bin", "lib", "skills", "commands", "herdr-plugin.toml", "package.json", "LICENSE", "NOTICE"];
+const RUNTIME = ["bin", "lib", "skills", "herdr-plugin.toml", "package.json", "LICENSE", "NOTICE"];
 
 function gitInfo() {
   try {
@@ -130,22 +140,41 @@ if (!existsSync(readme)) {
 console.log(`✓ config → ${configRoot()}（profiles.json、workflows/，install 不覆盖）`);
 console.log(`✓ state  → ${stateRoot()}`);
 
-// slash command：/rex 与 /fox。装进 ~/.claude/commands —— 那是用户目录，
-// 所以【只在不存在时写】，绝不覆盖用户自己改过的版本。
-const cmdDir = join(homedir(), ".claude", "commands");
-try {
-  mkdirSync(cmdDir, { recursive: true });
-  for (const f of readdirSync(join(DEST, "commands"))) {
-    const target = join(cmdDir, f);
-    if (existsSync(target)) {
-      console.log(`  /${f.replace(/\.md$/, "")} 已存在，跳过（想更新就先删掉它）`);
-      continue;
-    }
-    cpSync(join(DEST, "commands", f), target);
-    console.log(`✓ slash command /${f.replace(/\.md$/, "")}`);
+// 两份 playbook 同时也是各 harness 的 skill —— 用户打 /rex 或 /fox 就进编排。
+//
+// 【唯一真源 + 软链】：真源是 ~/.herdgent/skills，往各 harness 的 skills 目录
+// 建软链，而不是拷贝。拷贝会变成好几份各自漂移的副本，改一处修不完。
+// 只装到【已经存在】的 harness 目录——没装 codex 就不该给它建目录。
+const SKILL_DIRS = [
+  { kind: "claude", dir: join(homedir(), ".claude", "skills"), parent: join(homedir(), ".claude") },
+  { kind: "codex", dir: join(homedir(), ".codex", "skills"), parent: join(homedir(), ".codex") },
+  { kind: "pi", dir: join(homedir(), ".pi", "agent", "skills"), parent: join(homedir(), ".pi", "agent") },
+];
+const skillNames = existsSync(join(DEST, "skills")) ? readdirSync(join(DEST, "skills")) : [];
+for (const { kind, dir, parent } of SKILL_DIRS) {
+  if (!existsSync(parent)) {
+    console.log(`  ${kind} 没装，跳过`);
+    continue;
   }
-} catch (e) {
-  console.log(`⚠️  slash command 装不上：${e.message}`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    const linked = [];
+    for (const name of skillNames) {
+      const target = join(dir, name);
+      const src = join(DEST, "skills", name);
+      // 已有【非软链】的同名 skill 是用户自己的东西，不碰。
+      if (existsSync(target) && !lstatSync(target).isSymbolicLink()) {
+        console.log(`  ${kind}/${name} 已存在且不是软链，跳过`);
+        continue;
+      }
+      rmSync(target, { recursive: true, force: true });
+      symlinkSync(src, target);
+      linked.push(name);
+    }
+    console.log(`✓ ${kind} skill → ${linked.map((n) => `/${n}`).join(" ")}`);
+  } catch (e) {
+    console.log(`⚠️  ${kind} skill 装不上：${e.message}`);
+  }
 }
 
 // 0.4.0 之前 state/config 跟着 herdr 的插件目录走。只在【有内容】时提示，

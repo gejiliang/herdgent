@@ -1,3 +1,8 @@
+---
+name: fox
+description: 研究编排：并行派只读 worker 调查，汇总成结论。不写代码，不开 worktree。
+---
+
 # fox — 研究编排
 
 你在调查一件事，**不写代码**。派几个 worker 并行去看，然后由你综合成结论。
