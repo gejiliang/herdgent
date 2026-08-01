@@ -9,13 +9,14 @@
 //   node bin/install.mjs            装/更新 ~/.herdgent 并注册 MCP
 //   node bin/install.mjs --dry-run  只看要做什么
 //   node bin/install.mjs --print    只打印注册命令，自己去跑
-import { cpSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { herdgentHome, stateRoot, configRoot, workflowsRoot, legacyPaths } from "../lib/paths.mjs";
 
 const SRC = resolve(import.meta.dirname, "..");
-const DEST = process.env.HERDGENT_HOME || join(homedir(), ".herdgent");
+const DEST = herdgentHome();
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
 const printOnly = argv.includes("--print");
@@ -103,6 +104,43 @@ writeFileSync(
   ) + "\n",
 );
 console.log(`✓ 已同步到 ${DEST}`);
+
+// config/ 和 state/ 是【用户的】，只保证存在，绝不覆盖里面的东西。
+mkdirSync(configRoot(), { recursive: true });
+mkdirSync(workflowsRoot(), { recursive: true });
+mkdirSync(stateRoot(), { recursive: true });
+const readme = join(workflowsRoot(), "README.md");
+if (!existsSync(readme)) {
+  writeFileSync(
+    readme,
+    [
+      "# 自定义编排工作流",
+      "",
+      "这个目录下每个 `<name>.md` 就是一份工作流，编排者用 `orchestration_guide(workflow: \"<name>\")` 读它。",
+      "",
+      "工作流是 **prompt 不是代码**——写「谁评审谁、什么算验收、失败了怎么办」，",
+      "而不是写怎么调工具（那些在工具描述里）。可以从内置的",
+      "`../../skills/orchestrate/SKILL.md` 抄一份改。",
+      "",
+      "`install` 不会覆盖这个目录。",
+      "",
+    ].join("\n"),
+  );
+}
+console.log(`✓ config → ${configRoot()}（profiles.json、workflows/，install 不覆盖）`);
+console.log(`✓ state  → ${stateRoot()}`);
+
+// 0.4.0 之前 state/config 跟着 herdr 的插件目录走。不自动搬——把两份都当真的
+// 合并出来的表会很诡异；只提示，让人自己看。
+for (const [kind, dir] of Object.entries(legacyPaths())) {
+  if (!existsSync(dir)) continue;
+  const leftover = readdirSync(dir).filter((f) => f !== ".DS_Store");
+  if (leftover.length) {
+    console.log(`⚠️  旧 ${kind} 目录还有东西：${dir}`);
+    console.log(`    ${leftover.join(", ")}`);
+    console.log(`    需要的话自己搬到 ${kind === "state" ? stateRoot() : configRoot()}，herdgent 已经不读那里了`);
+  }
+}
 
 // ---- 2. 注册 MCP ----
 for (const c of MCP_CMDS) {

@@ -6,7 +6,7 @@
 //
 // state-dir 必须显式传：HERDR_PLUGIN_STATE_DIR 只注入插件命令，
 // 【不会】传进插件启动的会话，而这个进程是被那个会话拉起来的（findings 第五节）。
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
@@ -23,6 +23,7 @@ const stateDirArg = flag("state-dir");
 if (stateDirArg) process.env.HERDGENT_STATE_DIR = stateDirArg;
 
 const registry = await import("../lib/registry.mjs");
+const { workflowsRoot } = await import("../lib/paths.mjs");
 const { startManagedSession, findWorker, reclaimSession, sendAndConfirm, readWorkerResult } =
   await import("../lib/worker.mjs");
 const { SUPPORTED, getHarness } = await import("../lib/harness/index.mjs");
@@ -275,14 +276,48 @@ const TOOLS = [
   {
     name: "orchestration_guide",
     description:
-      "Read this BEFORE your first spawn_worker in a session. It is the full orchestration playbook — what you delegate, how reviews are assigned across vendors, how to handle a blocked worker, and how to clean up. Skill files live in different places for every harness, so this tool is how the playbook reaches all of them.",
-    inputSchema: { type: "object", properties: {}, required: [] },
-    handler: async () => {
-      const path = join(import.meta.dirname, "..", "skills", "orchestrate", "SKILL.md");
+      "Read this BEFORE your first spawn_worker in a session. Without arguments it returns the default playbook (what you delegate, how reviews go across vendors, how to handle a blocked worker, how to clean up) plus the names of any custom workflows the user has written. Pass `workflow` to read one of those instead. Skill files live in different places for every harness, so this tool is how the playbook reaches all of them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflow: {
+          type: "string",
+          description: "Name of a user-defined workflow (see available_workflows in the default response)",
+        },
+      },
+      required: [],
+    },
+    handler: async (args) => {
+      // 用户自定义工作流放 ~/.herdgent/config/workflows/*.md。它们是 prompt，
+      // 不是代码——「谁评审谁、什么算验收」这类语义只能活在这里。
+      const listWorkflows = () => {
+        try {
+          return readdirSync(workflowsRoot())
+            .filter((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md")
+            .map((f) => f.replace(/\.md$/, ""));
+        } catch {
+          return []; // 目录不存在不是错误
+        }
+      };
+
+      if (args.workflow) {
+        const name = String(args.workflow).replace(/[^a-zA-Z0-9._-]/g, "");
+        const path = join(workflowsRoot(), `${name}.md`);
+        try {
+          return { workflow: name, guide: readFileSync(path, "utf8") };
+        } catch {
+          throw Object.assign(
+            new Error(`no workflow '${name}' (available: ${listWorkflows().join(", ") || "none"})`),
+            { code: "unknown_workflow" },
+          );
+        }
+      }
+
+      const builtin = join(import.meta.dirname, "..", "skills", "orchestrate", "SKILL.md");
       try {
-        return { guide: readFileSync(path, "utf8") };
+        return { guide: readFileSync(builtin, "utf8"), available_workflows: listWorkflows() };
       } catch (e) {
-        throw Object.assign(new Error(`cannot read the guide at ${path}: ${e.message}`), {
+        throw Object.assign(new Error(`cannot read the guide at ${builtin}: ${e.message}`), {
           code: "guide_unreadable",
         });
       }

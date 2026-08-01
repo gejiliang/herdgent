@@ -6,7 +6,7 @@
 ## 不可逆约束
 
 - **只管自己起的会话。** 只操作本插件建出来的 workspace；**绝不按 label / agent 名去全局搜索**。GG 手起的会话（SPQR、mxweb、worldquant……）永远不在射程内。边界是结构性的，不是「记得过滤」。编排会一次起一批 worker，这条只会更吃紧。
-- **不改被管理项目的源码与配置。** herdgent 自己的状态只写 `HERDR_PLUGIN_STATE_DIR`；给会话的上下文只经启动 argv（`--settings` / `--mcp-config`）注入，两者实测均为**合并**语义，不会覆盖用户自己的配置。
+- **不改被管理项目的源码与配置。** herdgent 自己的东西全在 `~/.herdgent`（代码 / config / state，见 `lib/paths.mjs`）；给会话的上下文只经启动 argv（`--settings` / `--mcp-config`）注入，两者实测均为**合并**语义，不会覆盖用户自己的配置。
   worktree 也不算例外——实测 checkout 落在 `~/.herdr/worktrees/<repo>/<branch>`，项目仓库只多 `.git/worktrees/` 元数据。但**只能经 `herdr worktree create` / `remove` 进出**，且 `remove` 不删分支，收尾要补 `git branch -D`，否则每次编排都在用户仓库里留一个分支。
 - **主键只用 harness 侧 session id**（claude 的 UUID）。herdr 的 `workspace_id` / `pane_id` / `terminal_id` 都会失效或变化，只能当本次寻址的临时句柄。
 - **破坏性实验用命名会话**（配方见下）。日常 dogfood 就在 `default` 里跑——插件本来就是用户全局的，而且让归属边界从第一天就 load-bearing 正是目的。只有「可能起一堆东西 / 可能删错东西」的实验才需要隔离。
@@ -44,18 +44,25 @@ rm -rf /tmp/hg-dev-state
 **state 怎么隔离**（实测 2026-08-01）：
 
 - ❌ `HERDR_PLUGIN_STATE_DIR` 没用。它是 herdr **注入**给插件命令的，不是读取的——export 什么都会被覆盖成 `~/.local/state/herdr/plugins/<plugin-id>/`。
-- ✅ **`HERDGENT_STATE_DIR` 有用**，因为那是 herdgent 自己的变量（`lib/registry.mjs` 里优先级最高），herdr 不认识它、也就不会覆盖。
+- ✅ **`HERDGENT_STATE_DIR` 有用**，因为那是 herdgent 自己的变量（`lib/paths.mjs` 里优先级最高），herdr 不认识它、也就不会覆盖。默认值是 `~/.herdgent/state`，设了它就整体改写。
   在**起 server 时**设上，它会一路穿到这个 session 的每一处：plugin action → worker 会话 → 全局注册的 MCP server。
   实测：dev session 里的 plugin 读到的是临时目录的 registry，同一时刻 default session 读到的是真表，两边互不可见。
 
 → 所以**不需要给开发副本换 plugin id**。一条环境变量就够，而且清理只是 `rm -rf /tmp/hg-dev-state`。
 
-**dev / prod 要不要分两套？** 不用建两套环境，herdr 已经给了三条隔离轴：
-1. **plugin id** —— config/state 目录按 id 分（`herdr plugin config-dir <ID>`）。等到稳定版天天用、又要继续开发时，再让开发副本换个 id；现在只有 link 的开发副本，一个 id 够用。
-2. **named session** —— 上面的配方，隔离 workspace/pane/agent。
-3. **归属边界本身** —— dogfood 让它从第一天就是 load-bearing，漏了当天就知道。
+**dev / prod 已经分开了**（2026-08-01 起，GG 开始天天用之后才分的，不是提前建的）：
 
-不要提前建两套环境：那正是 SPQR v2 的死法（为未来可能的问题建设施）。
+| | 位置 | state |
+|---|---|---|
+| GG 用的 | `~/.herdgent`（`bin/install.mjs` 同步过去） | `~/.herdgent/state` |
+| 开发 | 本仓库 | `/tmp/hg-dev-state`（命名 session 里设 `HERDGENT_STATE_DIR`） |
+
+**改完代码不会自动生效**——MCP 配置里存的是 `~/.herdgent` 的绝对路径。
+要让 GG 用上得显式 `npm run install-local`，这一步是故意的：不然半成品会直接砸到他正在用的会话上。
+
+隔离靠两条轴，不需要第三条（换 plugin id 那条已作废，见上）：
+1. **named session + `HERDGENT_STATE_DIR`** —— 隔离 workspace/pane/agent 与整张 registry。
+2. **归属边界本身** —— dogfood 让它从第一天就是 load-bearing，漏了当天就知道。
 
 ## 形态纪律
 

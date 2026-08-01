@@ -68,10 +68,21 @@ node bin/install.mjs --dry-run  # 先看它要做什么
 node bin/install.mjs --print    # 只打印命令，自己去跑
 ```
 
-安装副本在 **`~/.herdgent`**，与开发工作副本分开。MCP 配置里存的是绝对路径，
-指向工作副本的话改一行代码就立刻影响所有正在用的会话——隔一个显式的 install
-步骤，改动什么时候生效由人决定。`~/.herdgent/INSTALLED.json` 记着装的是哪个 commit。
+**所有东西都在 `~/.herdgent`**：
 
+```
+~/.herdgent/
+├── bin/ lib/ skills/       代码 + 内置编排 skill   ← install 会覆盖
+├── herdr-plugin.toml
+├── INSTALLED.json          装的是哪个 commit、当时工作区脏不脏
+├── config/                 ← install 绝不动
+│   ├── profiles.json       自定义 worker profile（键名与内置同名即覆盖）
+│   └── workflows/*.md      自定义编排工作流
+└── state/                  registry.json、各会话的 settings、日志
+```
+
+与开发工作副本分开：MCP 配置里存的是绝对路径，指向工作副本的话改一行代码就立刻
+影响所有正在用的会话——隔一个显式的 install 步骤，改动什么时候生效由人决定。
 **已经开着的会话不会加载新版本**，新开会话才生效。
 
 装完就是这个流程：**在你已经聊清楚需求的那个会话里**，直接说「用 herdgent 并行做这几件事」。
@@ -101,13 +112,23 @@ command = "herdgent.orchestrate"
 description = "start herdgent orchestrator"
 ```
 
+### 自定义工作流
+
+`config/workflows/<name>.md` 每个文件就是一份工作流，编排者用
+`orchestration_guide(workflow: "<name>")` 读它；不带参数调用则返回内置 playbook
+并列出有哪些自定义工作流可选。
+
+工作流是 **prompt 不是代码**——写「谁评审谁、什么算验收、失败了怎么办」，
+而不是写怎么调工具（那些在工具描述里）。这正是 [`AGENTS.md`](AGENTS.md)
+那条「编排语义不进代码」的落点：语义可以由用户随时改写，不需要动 herdgent 一行。
+
 ### worker 不会递归
 
 全局注册之后 worker 也会加载这些工具。herdgent 的 MCP server 启动时会**认出自己是不是 worker**
 （查 registry 比对 `HERDR_PANE_ID`），是的话就不暴露 `spawn_worker` 那一组。
 比整个屏蔽掉全局 MCP 温和——worker 仍能用你其它的 MCP 服务。
 
-## 现状（0.4.0）
+## 现状（0.5.0）
 
 **跨厂商互审端到端跑通并实测**：`orchestrate` 起编排者 → 它派出 claude worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派 **codex** worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。
 
@@ -125,11 +146,14 @@ description = "start herdgent orchestrator"
 | `lib/mcp.mjs` | 零依赖 stdio JSON-RPC |
 | `lib/harness/` | claude / codex / pi 三家的适配：启动参数、提交语义、transcript 定位与解析 |
 | `lib/profiles.mjs` | worker profile：把 harness + 模型 + 权限标志打包成一个名字 |
+| `lib/paths.mjs` | 所有落盘位置的唯一解析处——三条启动路径必须落到同一处 |
+| `bin/install.mjs` | 同步到 `~/.herdgent` 并注册 MCP + herdr 插件 |
 | `skills/orchestrate/SKILL.md` | **编排的全部语义**——prompt，不是代码 |
 
-### 十个动词
+### 十二个动词
 
-`spawn_worker` · `list_workers` · `list_profiles` · `list_models` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `set_worker_limit` · `ping`
+`spawn_worker` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `list_workers`
+`set_worker_limit` · `list_profiles` · `list_models` · `orchestration_guide` · `herdr_status` · `ping`
 
 派活用 **profile**（`claude-impl` / `review-gemini` / `explore-fast` …）而不是自己拼参数。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
