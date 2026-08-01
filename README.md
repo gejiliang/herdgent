@@ -72,7 +72,8 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 
 ```
 ~/.herdgent/
-├── bin/ lib/ skills/       代码 + 内置编排 skill   ← install 会覆盖
+├── bin/ lib/ skills/       代码 + 两份 playbook       ← install 会覆盖
+├── commands/               /rex 与 /fox 的命令模板
 ├── herdr-plugin.toml
 ├── INSTALLED.json          装的是哪个 commit、当时工作区脏不脏
 ├── config/                 ← install 绝不动
@@ -92,8 +93,18 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 > 那是它启动插件命令前的固定动作（要注入 `HERDR_PLUGIN_STATE_DIR`），删了下次调用还会回来。
 > **herdgent 不读也不写那里**——所有落盘都在 `~/.herdgent`。
 
-装完就是这个流程：**在你已经聊清楚需求的那个会话里**，直接说「用 herdgent 并行做这几件事」。
-不用另起一个空白的编排者会话把需求重讲一遍——需求的上下文就在当前会话里。
+装完就是这个流程：**在你已经聊清楚需求的那个会话里**，直接打 `/rex` 或 `/fox`：
+
+```
+/rex 把认证模块的 token 刷新逻辑重构了，验收标准是现有测试全绿
+/fox 调研一下我们有几种缓存实现，各自用在哪
+```
+
+`/rex` 走开发编排（worktree + 分支 + 换厂商评审），`/fox` 走只读研究（当前 space 加 tab）。
+也可以不用命令，直接说「用 herdgent 并行做这几件事」——命令只是把 playbook 的入口
+和几条硬规则先塞给它，省得它自己摸索。
+
+**需求的上下文就在当前会话里**，不用另起一个空白的编排者会话重讲一遍。
 
 编排者**在不在 herdr 里都行**。CLI 直连一个 agent、只要结果不看过程，同样能派活：
 herdgent 只需要能连上 herdr socket，而 **worker 永远跑在 herdr 的真终端里**，

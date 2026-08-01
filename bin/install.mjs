@@ -23,7 +23,7 @@ const printOnly = argv.includes("--print");
 
 // 只搬运行时需要的东西。test/ 和 docs/ 不进安装副本——它们只在开发树里有意义，
 // 而 test/ 里那些会真起会话的脚本尤其不该出现在用户装好的目录里。
-const RUNTIME = ["bin", "lib", "skills", "herdr-plugin.toml", "package.json", "LICENSE", "NOTICE"];
+const RUNTIME = ["bin", "lib", "skills", "commands", "herdr-plugin.toml", "package.json", "LICENSE", "NOTICE"];
 
 function gitInfo() {
   try {
@@ -129,6 +129,24 @@ if (!existsSync(readme)) {
 }
 console.log(`✓ config → ${configRoot()}（profiles.json、workflows/，install 不覆盖）`);
 console.log(`✓ state  → ${stateRoot()}`);
+
+// slash command：/rex 与 /fox。装进 ~/.claude/commands —— 那是用户目录，
+// 所以【只在不存在时写】，绝不覆盖用户自己改过的版本。
+const cmdDir = join(homedir(), ".claude", "commands");
+try {
+  mkdirSync(cmdDir, { recursive: true });
+  for (const f of readdirSync(join(DEST, "commands"))) {
+    const target = join(cmdDir, f);
+    if (existsSync(target)) {
+      console.log(`  /${f.replace(/\.md$/, "")} 已存在，跳过（想更新就先删掉它）`);
+      continue;
+    }
+    cpSync(join(DEST, "commands", f), target);
+    console.log(`✓ slash command /${f.replace(/\.md$/, "")}`);
+  }
+} catch (e) {
+  console.log(`⚠️  slash command 装不上：${e.message}`);
+}
 
 // 0.4.0 之前 state/config 跟着 herdr 的插件目录走。只在【有内容】时提示，
 // 不自动搬——把两份都当真的合并出来的表会很诡异。
