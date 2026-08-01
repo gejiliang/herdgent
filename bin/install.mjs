@@ -142,16 +142,22 @@ console.log(`  目标: ${DEST}\n`);
 
 // 检查整体排在所有副作用（复制、MCP 注册、plugin link）之前：装到一半才失败
 // 留下的是半新半旧的 ~/.herdgent，比什么都没装更难收拾。
-// 不分模式：依赖不满足就是不满足，--dry-run / --print 一样非零退出。
+//
+// --print / --dry-run 例外：这两个模式本身没有副作用，检查不过只打印 ⚠️ 提示、
+// 照常往下走、退出码仍是 0。GG 拍板：环境没配好时最需要看的恰恰是「要做什么、
+// 缺什么」，把这两个模式也拦掉等于把唯一的诊断手段一起关了。
 const problems = preflight();
 if (problems.length) {
-  console.log(`✗ 前置依赖不满足（${problems.length} 项）：\n`);
+  const fatal = !dryRun && !printOnly;
+  console.log(`${fatal ? "✗" : "⚠️ "} 前置依赖不满足（${problems.length} 项）：\n`);
   for (const [what, how] of problems) {
     console.log(`  · ${what}`);
     console.log(`    ${how}\n`);
   }
-  console.log("都补齐后再跑一次 node bin/install.mjs。什么都没动。");
-  process.exit(1);
+  if (fatal) {
+    console.log("都补齐后再跑一次 node bin/install.mjs。什么都没动。");
+    process.exit(1);
+  }
 }
 
 if (printOnly) {
