@@ -26,7 +26,14 @@ const { allPresets, getPreset, render, missingInputs } = await import(
   const p = getPreset("impl-and-review");
   check("预设声明了 inputs", Object.keys(p.inputs).length > 0, Object.keys(p.inputs).join(","));
   check("评审步骤用的是另一家厂商", p.steps[1].profile === "review-gemini", p.steps[1].profile);
-  check("实现步骤要 branch", !!p.steps[0].branch, String(p.steps[0].branch));
+  // branch 是【容器级】的，不再挂在步骤上；容器类型才是模板要声明的东西
+  check("写代码的预设用 rex 模式", p.mode === "rex", String(p.mode));
+  check("只读预设用 fox 模式", getPreset("fanout-review").mode === "fox", String(getPreset("fanout-review").mode));
+  check(
+    "并行评审是一步多 profile 而不是多步",
+    getPreset("fanout-review").steps.length === 1 && Array.isArray(getPreset("fanout-review").steps[0].profile),
+    `${getPreset("fanout-review").steps.length} 步`,
+  );
   check("评审步骤挂上游 diff", p.steps[1].attach === "diff_of:impl", p.steps[1].attach);
 }
 
@@ -41,9 +48,9 @@ const { allPresets, getPreset, render, missingInputs } = await import(
 // ---- 必填检查 ----
 {
   const p = getPreset("impl-and-review");
-  check("缺参数报得出来", missingInputs(p, { task: "x" }).includes("branch"));
-  check("空白串算缺", missingInputs(p, { task: "x", branch: "   " }).includes("branch"));
-  check("齐了就没缺", missingInputs(p, { task: "x", branch: "b" }).length === 0);
+  check("缺参数报得出来", missingInputs(p, { task: "x" }).includes("label"));
+  check("空白串算缺", missingInputs(p, { task: "x", label: "   " }).includes("label"));
+  check("齐了就没缺", missingInputs(p, { task: "x", label: "n" }).length === 0);
 }
 
 // ---- 用户覆盖 ----
@@ -73,6 +80,25 @@ const { allPresets, getPreset, render, missingInputs } = await import(
     code = e.code;
   }
   check("未知预设报 unknown_preset", code === "unknown_preset", String(code));
+}
+
+// ---- 模式 ----
+{
+  const { allModes, getMode, skillPathFor } = await import(`../lib/modes.mjs?t=${Date.now()}`);
+  const modes = allModes();
+  check("内置两种模式", Object.keys(modes).sort().join(",") === "fox,rex", Object.keys(modes).join(","));
+  check("rex 是 worktree 容器", modes.rex.container === "worktree", modes.rex.container);
+  check("fox 是 tab 容器", modes.fox.container === "tab", modes.fox.container);
+  check("两份 playbook 都找得到",
+    !!skillPathFor(modes.rex, "rex") && !!skillPathFor(modes.fox, "fox"));
+  let code = null;
+  try { getMode("nope"); } catch (e) { code = e.code; }
+  check("未知模式报 unknown_mode", code === "unknown_mode", String(code));
+
+  writeFileSync(join(home, "config", "modes.json"),
+    JSON.stringify({ modes: { owl: { container: "tab", description: "自定义的", skill: "owl" } } }));
+  const withUser = allModes();
+  check("用户可新增模式", !!withUser.owl && withUser.owl.source === "user", Object.keys(withUser).join(","));
 }
 
 rmSync(home, { recursive: true, force: true });

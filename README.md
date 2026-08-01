@@ -78,6 +78,7 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 ├── config/                 ← install 绝不动
 │   ├── profiles.json       自定义 worker profile（键名与内置同名即覆盖）
 │   ├── presets.json        自定义编排预设
+│   ├── modes.json          自定义编排模式（内置 rex / fox）
 │   └── workflows/*.md      自定义编排工作流（prompt 形式）
 └── state/                  registry.json、各会话的 settings、日志
 ```
@@ -118,6 +119,19 @@ command = "herdgent.orchestrate"
 description = "start herdgent orchestrator"
 ```
 
+### 两种编排：rex 与 fox
+
+| | 容器 | 用在哪 |
+|---|---|---|
+| **rex** | 自己的 git worktree workspace + 独立分支 | **任何会写代码的活**。侧栏显示 `rex · <任务名>` |
+| **fox** | 不新建 space，在当前 workspace 加 tab | **只读研究**。tab 显示 `fox · <题目> · <环节>` |
+
+一次编排就是一个容器：**环节是 tab，环节内并行的 worker 是 pane**。
+tab 名带状态后缀（`⋯` 跑着 / `✓` 完成 / `⚠` 有人卡住 / `✗` 失败），扫一眼侧栏就知道进度。
+
+两种模式各有一份 playbook（`skills/rex/`、`skills/fox/`），编排者用
+`orchestration_guide(mode: "rex")` 读。用户可在 `config/modes.json` 覆盖或新增自己的模式。
+
 ### 编排预设
 
 **预设是一整套编排写成的数据**：谁实现、谁评审、谁的产物喂给谁。
@@ -128,7 +142,8 @@ list_presets                        看有哪些
 run_preset(preset, inputs)          跑
 ```
 
-内置 `impl-and-review`（实现 → 换厂商评审）和 `fanout-review`（三家同时评审同一份 diff）。
+内置 `impl-and-review`（rex：实现 → 换厂商评审）和 `fanout-review`（fox：三家同时评审同一份 diff）。
+预设声明自己属于哪个 mode，容器形态就跟着定了——**开不开 worktree 是模板的一部分，不是每次现想的**。
 用户可在 `config/presets.json` 覆盖或新增。
 
 **执行引擎刻意是哑的**：它只认识「派活、等完成、取产物、塞进下一步」四个动作，
@@ -155,7 +170,7 @@ run_preset(preset, inputs)          跑
 （查 registry 比对 `HERDR_PANE_ID`），是的话就不暴露 `spawn_worker` 那一组。
 比整个屏蔽掉全局 MCP 温和——worker 仍能用你其它的 MCP 服务。
 
-## 现状（0.6.0）
+## 现状（0.7.0）
 
 **跨厂商互审端到端跑通并实测**：`orchestrate` 起编排者 → 它派出 claude worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派 **codex** worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。
 
@@ -176,13 +191,14 @@ run_preset(preset, inputs)          跑
 | `lib/presets.mjs` | 编排预设：把一整套多 worker 序列写成数据 |
 | `lib/paths.mjs` | 所有落盘位置的唯一解析处——三条启动路径必须落到同一处 |
 | `bin/install.mjs` | 同步到 `~/.herdgent` 并注册 MCP + herdr 插件 |
-| `skills/orchestrate/SKILL.md` | **编排的全部语义**——prompt，不是代码 |
+| `lib/modes.mjs` | 编排模式：rex（开发／worktree）与 fox（研究／tab） |
+| `skills/rex/`、`skills/fox/` | 两种编排各自的 playbook——**全部语义在这里**，prompt 不是代码 |
 
-### 十四个动词
+### 十五个动词
 
 `spawn_worker` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `list_workers`
 `set_worker_limit` · `list_profiles` · `list_models` · `orchestration_guide` · `herdr_status` · `ping`
-`list_presets` · `run_preset`
+`list_presets` · `run_preset` · `run_plan`
 
 派活用 **profile**（`claude-impl` / `review-gemini` / `explore-fast` …）而不是自己拼参数。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。

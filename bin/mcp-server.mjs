@@ -24,11 +24,22 @@ if (stateDirArg) process.env.HERDGENT_STATE_DIR = stateDirArg;
 
 const registry = await import("../lib/registry.mjs");
 const { workflowsRoot } = await import("../lib/paths.mjs");
-const { startManagedSession, findWorker, reclaimSession, sendAndConfirm, readWorkerResult } =
-  await import("../lib/worker.mjs");
+const {
+  startManagedSession,
+  startAgentInPane,
+  createOrchestrationSpace,
+  openStageTab,
+  splitForParallel,
+  setStageStatus,
+  findWorker,
+  reclaimSession,
+  sendAndConfirm,
+  readWorkerResult,
+} = await import("../lib/worker.mjs");
 const { SUPPORTED, getHarness } = await import("../lib/harness/index.mjs");
 const { allProfiles, applyProfile } = await import("../lib/profiles.mjs");
 const { allPresets, getPreset, render, missingInputs } = await import("../lib/presets.mjs");
+const { allModes, getMode, skillPathFor } = await import("../lib/modes.mjs");
 
 // ---- 我是谁、这次编排叫什么 ----
 //
@@ -277,10 +288,11 @@ const TOOLS = [
   {
     name: "orchestration_guide",
     description:
-      "Read this BEFORE your first spawn_worker in a session. Without arguments it returns the default playbook (what you delegate, how reviews go across vendors, how to handle a blocked worker, how to clean up) plus the names of any custom workflows the user has written. Pass `workflow` to read one of those instead. Skill files live in different places for every harness, so this tool is how the playbook reaches all of them.",
+      "Read this BEFORE your first spawn_worker. Without arguments it lists the orchestration modes (rex for development, fox for read-only research) and any custom workflows; pass `mode` to read that mode's full playbook. Skill files live in different places for every harness, so this tool is how the playbook reaches all of them.",
     inputSchema: {
       type: "object",
       properties: {
+        mode: { type: "string", description: "Orchestration mode to read: 'rex' or 'fox' (see the default response)" },
         workflow: {
           type: "string",
           description: "Name of a user-defined workflow (see available_workflows in the default response)",
@@ -314,14 +326,27 @@ const TOOLS = [
         }
       }
 
-      const builtin = join(import.meta.dirname, "..", "skills", "orchestrate", "SKILL.md");
-      try {
-        return { guide: readFileSync(builtin, "utf8"), available_workflows: listWorkflows() };
-      } catch (e) {
-        throw Object.assign(new Error(`cannot read the guide at ${builtin}: ${e.message}`), {
-          code: "guide_unreadable",
-        });
+      if (args.mode) {
+        const m = getMode(args.mode);
+        const path = skillPathFor(m, args.mode);
+        if (!path) {
+          throw Object.assign(new Error(`mode '${args.mode}' has no playbook file`), {
+            code: "guide_unreadable",
+          });
+        }
+        return { mode: args.mode, container: m.container, guide: readFileSync(path, "utf8") };
       }
+
+      return {
+        modes: Object.entries(allModes()).map(([name, m]) => ({
+          name,
+          container: m.container,
+          description: m.description,
+          source: m.source,
+        })),
+        available_workflows: listWorkflows(),
+        next: "call orchestration_guide again with mode='rex' or mode='fox' to read that playbook",
+      };
     },
   },
   {
@@ -341,9 +366,53 @@ const TOOLS = [
     }),
   },
   {
+    name: "run_plan",
+    description:
+      "Run an orchestration you assembled yourself. The whole run lives in ONE container decided by `mode`: 'rex' (default, anything that writes code) gets a git worktree workspace with its own branch; 'fox' (read-only research) just adds tabs to your current workspace. Either way each step becomes a tab, and parallel workers inside a step become panes in that tab — the human sees one container per orchestration, not scattered workspaces. All workers share that worktree and branch, so when a step runs several writers, give each one a disjoint slice of the work. Steps run in ORDER; within one step, giving `task` an array spawns that many workers IN PARALLEL, and giving `profile` an array runs the SAME task on several vendors (that is how cross-vendor review is done). Decide the shape from the size of the job — a one-file fix needs one implementer and one reviewer; a refactor across modules may want several implementers on separate branches and three reviewers from different vendors. Each step names a profile (see list_profiles), which already carries the harness, model, prompt and permissions. Blocks until the whole plan finishes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        steps: {
+          type: "array",
+          description: "Steps in execution order",
+          items: {
+            type: "object",
+            properties: {
+              profile: {
+                description: "Profile name, or an array of names to run the same task on several vendors at once",
+                anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+              },
+              task: {
+                description: "One instruction (string) or several to run in parallel (array of strings)",
+                anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+              },
+              id: { type: "string", description: "Name this step so later steps can attach its output; defaults to its index" },
+              title: { type: "string", description: "Stage name — becomes the tab label the human sees" },
+              attach: {
+                type: "string",
+                description: "Feed a previous step's output in: 'diff_of:<step>' or 'result_of:<step>'. The file path lands in the task as {{attached}}.",
+              },
+            },
+            required: ["profile", "task"],
+          },
+        },
+        label: { type: "string", description: "Name of this orchestration — the human sees it as the workspace or tab label" },
+        mode: {
+          type: "string",
+          description:
+            "Which kind of orchestration this is. 'rex' (default) is development work — it gets its own git worktree and branch, use it for ANYTHING that writes code. 'fox' is read-only research — it just adds tabs to your current workspace, no branch to clean up afterwards. Read the matching playbook with orchestration_guide first.",
+        },
+        branch: { type: "string", description: "Branch for the worktree; omit and herdr names one automatically. Ignored when container is 'tab'." },
+        base_ref: { type: "string", description: "Git ref that diffs are taken against (default: main)" },
+      },
+      required: ["steps"],
+    },
+    handler: (args) => runPlan(args),
+  },
+  {
     name: "run_preset",
     description:
-      "Run an orchestration preset end to end: it spawns each step's worker, waits for it, hands the declared artifact (a diff, a previous worker's answer) to the next step, and returns every step's result. Blocks until done — that is expected, do not poll it. If any worker comes back 'blocked' the run stops there and tells you which step, so a human can step in.",
+      "Run a saved orchestration template — same engine as run_plan, but the steps are already written down. Use this when a preset matches what you need; use run_plan when the job's shape is different from any of them.",
     inputSchema: {
       type: "object",
       properties: {
@@ -366,12 +435,15 @@ const TOOLS = [
     handler: async () => {
       const profiles = allProfiles();
       const listed = runSafe(["pi", "--list-models"]);
+      // 比对【全名】provider/model：裸名字会误判——pi 的模糊匹配可能命中
+      // 另一个 provider 的同名模型，那种「可用」是假的。
       const available = new Set(
         (listed ?? "")
           .split("\n")
           .slice(1)
-          .map((l) => l.trim().split(/\s+/)[1])
-          .filter(Boolean),
+          .map((l) => l.trim().split(/\s+/))
+          .filter((c) => c.length >= 2 && c[0] && c[1])
+          .map(([provider, model]) => `${provider}/${model}`),
       );
       return {
         profiles: Object.entries(profiles).map(([name, p]) => ({
@@ -527,6 +599,13 @@ const TOOLS = [
     },
     handler: async (args) => {
       const w = mustFindWorker(args.worker_id);
+      // 发送【之前】的轮次数才是这一轮的基线——发完再数就把新回复也算进去了。
+      let turnsBefore = 0;
+      try {
+        turnsBefore = readWorkerResult(w.slug).assistant_turns ?? 0;
+      } catch {
+        turnsBefore = 0;
+      }
       const r = sendAndConfirm(w.pane_id, args.text, { harness: w.harness || "claude" });
       if (r.submitted) {
         // 基线取【发送前】的 seq，不能取 seq_after：sendAndConfirm 一观察到变化就返回，
@@ -534,7 +613,9 @@ const TOOLS = [
         // wait 会永久等下去（实测踩到，卡了 10 分钟）。用 seq_before 则任何后续变化都严格大于它。
         registry.update((reg) => {
           const row = Object.values(reg.sessions).find((s) => s.slug === w.slug);
-          if (row && r.seq_before != null) row.dispatch_seq = r.seq_before;
+          if (!row) return;
+          row.dispatch_turns = turnsBefore;
+          if (r.seq_before != null) row.dispatch_seq = r.seq_before;
         });
       } else {
         log(`send_to_worker unconfirmed for ${w.slug}: seq ${r.seq_before} -> ${r.seq_after}`);
@@ -603,8 +684,19 @@ function resolveArtifact(spec, ctx) {
   mkdirSync(dir, { recursive: true });
 
   if (kind === "diff_of") {
+    // 所有 worker 共用编排容器那一个分支，所以「某一步的 diff」实际是
+    // 到目前为止这个分支相对 base 的全部改动。指定 git ref 时按 ref 取。
     const upstream = ctx.steps[rest];
-    const ref = upstream?.branch ? `${ctx.baseRef}..${upstream.branch}` : rest;
+    if (upstream && !ctx.branch) {
+      throw Object.assign(
+        new Error(
+          `cannot take diff_of:${rest} — this run has no branch of its own (container 'tab'). ` +
+            `Use a git ref directly, e.g. diff_of:main..feature, or run with container 'worktree'.`,
+        ),
+        { code: "no_branch_for_diff" },
+      );
+    }
+    const ref = upstream ? `${ctx.baseRef}..${ctx.branch}` : rest;
     const out = runSafe(["git", "-C", ctx.repo, "diff", ref]);
     if (out == null) {
       throw Object.assign(new Error(`git diff ${ref} failed in ${ctx.repo}`), { code: "diff_failed" });
@@ -617,10 +709,21 @@ function resolveArtifact(spec, ctx) {
   if (kind === "result_of") {
     const upstream = ctx.steps[rest];
     if (!upstream) throw Object.assign(new Error(`no step '${rest}' to take a result from`), { code: "bad_artifact" });
-    const r = readWorkerResult(upstream.worker_id);
+    // 一个步骤可能派了多个 worker（task 传数组）。全都收进来，标上是谁说的——
+    // 引擎不判断谁对谁错，那是读它的人的事。
+    const parts = upstream.workers.map((w) => {
+      let text = "";
+      try {
+        text = readWorkerResult(w.slug).text ?? "";
+      } catch (e) {
+        text = `(读不到：${e.code})`;
+      }
+      return `## ${w.title}\n\n${text}`;
+    });
+    const body = parts.join("\n\n---\n\n");
     const path = join(dir, `${rest.replace(/[^\w.-]/g, "_")}.md`);
-    writeFileSync(path, r.text ?? "");
-    return { path, bytes: (r.text ?? "").length };
+    writeFileSync(path, body);
+    return { path, bytes: body.length };
   }
 
   throw Object.assign(new Error(`unknown artifact '${spec}' (use diff_of:<id> or result_of:<id>)`), {
@@ -634,38 +737,325 @@ const WAIT_CEILING_MS = 30 * 60 * 1000;
 
 // 判断一个 worker 是不是【这一轮】结束了。
 //
-// 光看状态不够：worker 上一轮结束后就停在 done/idle 上，刚派完新活时状态还没转成
-// working，此刻查到的 done 是【上一轮的】终态。直接返回会让 orchestrator 立刻去读
-// 结果，读到的是旧回答（实测踩到：中断后重新派活，wait 立即返回、read 拿回被中断的旧文本）。
-// findings 第二节第 3 条警告过这一点——herdr 没有 "since seq" 参数，去重必须自己做。
+// 光看状态不够，「终态」不等于「这一轮的终态」。用 seq 当判据栽了三次：
+//   1. 拿到上一轮的终态就返回 → read 读回旧答复
+//   2. 基线取 sendAndConfirm 的 seq_after，而极短任务在那之前已跑完 → 永久等待
+//   3. pi 的 agent start 回来时就是 done，基线取当时的 seq → 等一个不会再来的变化
+//   4. 同上，但 workspace 被「看过」所以终态是 idle 不是 done，第 3 次的补丁没覆盖
+// 每次都是同一个病：seq 是「状态变了几次」，而我们真正想问的是「有没有新产出」。
 //
-// 所以用 dispatch_seq：派活时记下当时的 state_change_seq，只有严格大于它的终态才算数。
-// 每次都重读 registry，因为 wait 阻塞期间可能有 send_to_worker 推进了这个基线。
+// 所以主判据换成 transcript：这一轮有没有多出 assistant 回复。
+//   · 新 spawn 的 worker：派活前 transcript 是空的，基线 0，答一句就算完成
+//   · send_to_worker：基线是发送前的轮次数
+// 这个判据对三家 harness 一致，也不受 idle/done 之分影响。
+// seq 仅作降级——transcript 还没落盘的那一小段窗口里用它兜底。
 function settledNow(slug) {
   const w = findWorker(slug);
   if (!w) return null;
   const r = tryHerdr(["agent", "get", w.pane_id]);
   if (!r.ok) return null;
   const agent = r.result.agent;
-  if (!SETTLED.has(agent?.agent_status)) return null;
+  const status = agent?.agent_status;
+  if (!SETTLED.has(status)) return null;
   const seq = agent.state_change_seq;
+
+  let turns = null;
+  try {
+    turns = readWorkerResult(slug).assistant_turns;
+  } catch {
+    turns = null; // transcript 还没生成 / 还没回填路径
+  }
+
+  if (turns != null) {
+    return turns > (w.dispatch_turns ?? 0) ? { status, seq, turns } : null;
+  }
+
   if (w.dispatch_seq != null && seq != null && seq <= w.dispatch_seq) return null;
-  return { status: agent.agent_status, seq };
+  return { status, seq };
 }
 
-// 等一批 worker，任一进入终态就返回——这对应 polly 的 inbox 语义：
-// 拿到一个就去处理它，而不是傻等全部跑完。
+// 一次编排 = 一个 worktree workspace，挂在父 repo 下；环节是 tab，环节内并行是 pane。
+// 这是用户手工建 worktree 时的布局，编排产物不该长得跟手工的不一样。
 //
-// 【一个 pane 一条连接】是实测约束（events.mjs 文件头）：pane.agent_status_changed
-// 必填 pane_id，而订阅数组里有一个不存在的 pane 就整个请求被拒。合订会让
-// 一个 worker 的死亡牵连所有其他 worker 的等待。
-// 预设引擎。【刻意保持哑】：只做四件事——渲染任务文本、派活、等完成、取产物。
-// 它不知道 impl / review 是什么意思，换个预设就干完全不同的事。
-async function runPreset({ preset: name, inputs = {}, base_ref: baseRef = "main" }) {
-  assertCanSpawn();
-  const preset = getPreset(name);
+// 懒建 + 复用：同一个 root 的第二次 run_plan 会继续用同一个容器，
+// 不会每次都在侧栏多出一个 space。
+//
+// 容器有【两种】，边界按「要不要写代码」划：
+//   worktree —— 涉及开发的任务。新建 worktree workspace，独立分支，改动不碰主工作区。
+//   tab      —— 只读的研究/探索。不新建 space，就在编排者所在的 space 里加 tab。
+// 研究性任务开 worktree 是浪费（还要收尾删分支），写代码不开 worktree 则会互相踩。
+let SPACE = null;
+function ensureSpace(label, branch, container = "worktree") {
+  if (SPACE) return SPACE;
 
-  // 先检查参数再动手：跑到一半才发现缺输入，前面烧掉的额度回不来。
+  if (container === "tab") {
+    // 就在编排者所在的 space 里干活。没有 pane 就没有「当前 space」——
+    // CLI 直连的会话不在任何 workspace 里，明确报错好过静默改成新建 space。
+    if (!IDENTITY.paneId) {
+      throw Object.assign(
+        new Error(
+          "container 'tab' needs the orchestrator to be inside a herdr workspace, " +
+            "but this session has no pane. Use container 'worktree', or run the orchestrator inside herdr.",
+        ),
+        { code: "no_current_space" },
+      );
+    }
+    const pane = tryHerdr(["pane", "get", IDENTITY.paneId]);
+    const wsId = pane.ok ? pane.result.pane?.workspace_id : null;
+    if (!wsId) {
+      throw Object.assign(new Error(`cannot resolve the workspace of pane ${IDENTITY.paneId}`), {
+        code: "no_current_space",
+      });
+    }
+    const w = tryHerdr(["workspace", "get", wsId]);
+    SPACE = {
+      workspaceId: wsId,
+      checkoutPath: null, // 就在仓库本体里，只读任务不需要隔离
+      branch: null,
+      rootTabId: null, // 不复用别人的 tab，每个环节都新建
+      tabsUsed: 1,
+      container: "tab",
+      label: w.ok ? w.result.workspace?.label : null,
+    };
+    registry.putOrchestration(ROOT, { workspace_id: wsId, container: "tab", label });
+    log(`space reused (tab mode) ws=${wsId}`);
+    return SPACE;
+  }
+
+  const existing = registry.getOrchestration(ROOT);
+  if (existing?.workspace_id) {
+    // 上一轮建过。确认它还在——herdr 重启后 workspace id 会变，那就得重建。
+    const w = tryHerdr(["workspace", "get", existing.workspace_id]);
+    if (w.ok) {
+      SPACE = {
+        workspaceId: existing.workspace_id,
+        checkoutPath: existing.checkout_path,
+        branch: existing.branch,
+        rootTabId: existing.root_tab_id,
+        tabsUsed: existing.tabs_used ?? 0,
+        container: existing.container ?? "worktree",
+      };
+      return SPACE;
+    }
+  }
+  const made = createOrchestrationSpace({ repo: REPO, label, branch });
+  SPACE = { ...made, tabsUsed: 0, container: "worktree" };
+  registry.putOrchestration(ROOT, {
+    workspace_id: made.workspaceId,
+    checkout_path: made.checkoutPath,
+    branch: made.branch,
+    root_tab_id: made.rootTabId,
+    container: "worktree",
+    label,
+  });
+  log(`space created ws=${made.workspaceId} branch=${made.branch} checkout=${made.checkoutPath}`);
+  return SPACE;
+}
+
+// 编排引擎。【刻意保持哑】：只做五件事——渲染模板、派活、等完成、取产物、
+// 把产物塞进下一步。它不知道 impl / review 是什么意思，换个计划就干完全不同的事。
+//
+// 计划的形状只有两条规则：
+//   · 步骤之间【串行】——后一步通常要等前一步的产物
+//   · 步骤【内部】并行——task 给数组就并行派几个
+// 不需要额外的并发声明，也就没有额外要记的概念。
+async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode = "rex", container }) {
+  assertCanSpawn();
+  if (!Array.isArray(steps) || steps.length === 0) {
+    throw Object.assign(new Error("plan needs a non-empty steps array"), { code: "empty_plan" });
+  }
+
+  // container 由 mode 推导，调用方不用声明两遍；显式给 container 时以它为准（逃生口）。
+  const modeSpec = getMode(mode);
+  const useContainer = container || modeSpec.container;
+  const runLabel = label || steps[0]?.id || "orchestration";
+  // 容器名带上模式：侧栏里一眼看出这是哪种编排。
+  const spaceLabel = `${modeSpec.label || mode} · ${runLabel}`;
+  const space = ensureSpace(spaceLabel, branch, useContainer);
+  const id = `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  // 所有 worker 都在这个 worktree 的 checkout 里干活，共用一个分支。
+  const workCwd = space.checkoutPath || REPO;
+  const ctx = { runId: id, repo: REPO, baseRef, branch: space.branch, steps: {} };
+  const results = [];
+  log(`plan start run=${id} steps=${steps.length} ws=${space.workspaceId}`);
+
+  for (const [index, step] of steps.entries()) {
+    const stepId = step.id ?? String(index);
+    const tasks = Array.isArray(step.task) ? step.task : [step.task];
+    const profiles = Array.isArray(step.profile) ? step.profile : [step.profile];
+
+    if (!profiles.length || profiles.some((x) => !x)) {
+      throw Object.assign(new Error(`step ${stepId}: profile is required`), { code: "bad_step" });
+    }
+    if (!tasks.length || tasks.some((t) => !String(t ?? "").trim())) {
+      throw Object.assign(new Error(`step ${stepId}: every task must be non-empty`), { code: "bad_step" });
+    }
+    // profile 与 task 都可以是数组，规则对称：
+    //   一对一 → 各派各的；一对多 / 多对一 → 广播；多对多但长度不等 → 拒绝（意图不明）
+    if (profiles.length > 1 && tasks.length > 1 && profiles.length !== tasks.length) {
+      throw Object.assign(
+        new Error(`step ${stepId}: ${profiles.length} profiles vs ${tasks.length} tasks — give equal counts or one of each`),
+        { code: "bad_step" },
+      );
+    }
+    const n = Math.max(profiles.length, tasks.length);
+    const pick = (arr, i) => (arr.length === 1 ? arr[0] : arr[i]);
+
+    let attached = null;
+    if (step.attach) {
+      try {
+        attached = resolveArtifact(step.attach, ctx);
+      } catch (e) {
+        results.push({ step: stepId, ok: false, error: e.code || "attach_failed", message: e.message });
+        return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
+      }
+    }
+
+    // 环节 = 一个 tab。第一个环节复用 worktree 自带的 tab，否则会多出一个空的。
+    // tab 模式下 tab 与用户自己的 tab 混在同一个 space 里，所以要带上编排名，
+    // 否则过一会儿没人分得清哪个 tab 是哪次编排开的。
+    // worktree 模式下 workspace 名已经带了「模式 · 任务」，tab 不必重复；
+    // tab 模式的 tab 跟人自己的 tab 混在一个 space 里，必须带全名才分得清。
+    const stageLabel =
+      space.container === "tab"
+        ? `${spaceLabel} · ${index + 1} ${step.title || stepId}`
+        : `${index + 1} ${step.title || stepId}`;
+    let stage;
+    try {
+      stage = openStageTab({
+        workspaceId: space.workspaceId,
+        label: `${stageLabel} ${"⋯"}`,
+        reuseTabId: space.tabsUsed === 0 ? space.rootTabId : null,
+      });
+      space.tabsUsed += 1;
+    } catch (e) {
+      results.push({ step: stepId, ok: false, error: e.code || "tab_failed", message: e.message });
+      return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
+    }
+
+    const spawned = [];
+    for (let i = 0; i < n; i += 1) {
+      const profileName = pick(profiles, i);
+      const spec = applyProfile({ profile: profileName });
+      const vars = { attached: attached?.path ?? "", i: i + 1, n };
+      const title = render(step.title ? `${step.title}-${i + 1}` : `${profileName}-${stepId}`, vars);
+
+      let paneId;
+      try {
+        // 环节内并行 = 同一个 tab 里 split 出多个 pane。
+        paneId = i === 0 ? stage.rootPaneId : splitForParallel(stage.rootPaneId, i);
+      } catch (e) {
+        setStageStatus(stage.tabId, stageLabel, "failed");
+        results.push({ step: stepId, ok: false, error: e.code || "split_failed", message: e.message });
+        return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
+      }
+
+      try {
+        const entry = startAgentInPane({
+          paneId,
+          cwd: workCwd,
+          task: render(pick(tasks, i), vars),
+          harness: spec.harness || "claude",
+          role: "worker",
+          root: ROOT,
+          parent: ROOT,
+          title,
+          purpose: stepId,
+          branch: space.branch,
+          repo: REPO,
+          workspaceId: space.workspaceId,
+          yolo: !!spec.yolo,
+          model: spec.model || null,
+          readOnly: !!spec.read_only,
+          prompt: spec.prompt || null,
+        });
+        spawned.push({ slug: entry.slug, title, profile: profileName });
+      } catch (e) {
+        setStageStatus(stage.tabId, stageLabel, "failed");
+        results.push({ step: stepId, ok: false, error: e.code || "spawn_failed", message: e.message });
+        log(`plan ${id} step ${stepId} spawn failed: ${e.message}`);
+        return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
+      }
+    }
+
+    ctx.steps[stepId] = { workers: spawned, branch: space.branch };
+    const settled = await waitAllWorkers(spawned.map((w) => w.slug));
+
+    const blocked = settled.filter((x) => x.status === "blocked");
+    if (blocked.length) {
+      setStageStatus(stage.tabId, stageLabel, "blocked");
+      results.push({
+        step: stepId,
+        ok: false,
+        status: "blocked",
+        tab: stage.tabId,
+        workers: blocked.map((b) => ({ worker_id: b.worker_id, title: b.title })),
+      });
+      log(`plan ${id} stopped: step ${stepId} blocked`);
+      return {
+        run: id,
+        workspace_id: space.workspaceId,
+        completed: false,
+        stopped_at: stepId,
+        reason: "a worker needs a human — read_worker mode=screen to see what it is asking",
+        results,
+      };
+    }
+
+    setStageStatus(stage.tabId, stageLabel, "done");
+    results.push({
+      step: stepId,
+      ok: true,
+      tab: stage.tabId,
+      attached: attached?.path,
+      workers: spawned.map((w) => {
+        let text = "";
+        try {
+          text = readWorkerResult(w.slug).text ?? "";
+        } catch (e) {
+          text = `(结果暂时读不到：${e.code})`;
+        }
+        return { worker_id: w.slug, title: w.title, profile: w.profile, result: text };
+      }),
+    });
+    log(`plan ${id} step ${stepId} done workers=${spawned.length}`);
+  }
+
+  return {
+    run: id,
+    workspace_id: space.workspaceId,
+    branch: space.branch,
+    checkout: space.checkoutPath,
+    completed: true,
+    results,
+  };
+}
+
+// 等一整批 worker 全部落定。waitForWorkers 是「任一完成就返回」，
+// 步骤内并行要的是「全部完成」，所以在这里循环收干净。
+async function waitAllWorkers(ids) {
+  const pending = new Set(ids);
+  const settled = [];
+  while (pending.size) {
+    const r = await waitForWorkers([...pending]);
+    for (const s of r.settled ?? []) {
+      pending.delete(s.worker_id);
+      settled.push(s);
+    }
+    for (const u of r.unreachable ?? []) {
+      pending.delete(u.worker_id);
+      settled.push({ worker_id: u.worker_id, status: "unreachable", reason: u.reason });
+    }
+    // 一轮什么都没落定说明撞到了 wait 的兜底上限，再等下去也是白等。
+    if (!(r.settled ?? []).length && !(r.unreachable ?? []).length) break;
+  }
+  for (const id of pending) settled.push({ worker_id: id, status: "still_running" });
+  return settled;
+}
+
+// 预设 = 存好的计划模板。渲染完就交给同一个引擎，没有第二套执行路径。
+async function runPreset({ preset: name, inputs = {}, base_ref: baseRef = "main" }) {
+  const preset = getPreset(name);
   const missing = missingInputs(preset, inputs);
   if (missing.length) {
     throw Object.assign(
@@ -673,89 +1063,22 @@ async function runPreset({ preset: name, inputs = {}, base_ref: baseRef = "main"
       { code: "missing_inputs" },
     );
   }
-
-  const runId = `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-  const ctx = { runId, repo: REPO, baseRef, steps: {} };
-  const results = [];
-  log(`preset ${name} start run=${runId} steps=${preset.steps.length}`);
-
-  for (const step of preset.steps) {
-    const vars = { ...inputs };
-
-    // 产物：上一步的 diff / 回复，落成文件，把路径给下一步。
-    let attached = null;
-    if (step.attach) {
-      const spec = render(step.attach, vars);
-      attached = resolveArtifact(spec, ctx);
-      vars.attached = attached.path;
-    }
-
-    const title = render(step.title || step.id, vars);
-    const branch = step.branch ? render(step.branch, vars) : null;
-    const task = render(step.task, vars);
-
-    let entry;
-    try {
-      const spec = applyProfile({ profile: step.profile });
-      entry = startManagedSession({
-        cwd: REPO,
-        task,
-        harness: spec.harness || "claude",
-        role: "worker",
-        root: ROOT,
-        parent: ROOT,
-        title,
-        purpose: step.id,
-        branch,
-        yolo: !!spec.yolo,
-        model: spec.model || null,
-        readOnly: !!spec.read_only,
-      });
-    } catch (e) {
-      results.push({ step: step.id, ok: false, error: e.code || "spawn_failed", message: e.message });
-      log(`preset ${name} step ${step.id} spawn failed: ${e.message}`);
-      return { run: runId, preset: name, completed: false, stopped_at: step.id, results };
-    }
-
-    ctx.steps[step.id] = { worker_id: entry.slug, branch, title };
-    const waited = await waitForWorkers([entry.slug]);
-    const settled = waited.settled?.[0];
-
-    // blocked = 那个 worker 停在审批或提问界面上，不处理就永远不动。
-    // 引擎不替人做决定：停下来，报清楚卡在哪一步。
-    if (settled?.status === "blocked") {
-      results.push({ step: step.id, ok: false, worker_id: entry.slug, status: "blocked", title });
-      log(`preset ${name} stopped: step ${step.id} blocked`);
-      return {
-        run: runId,
-        preset: name,
-        completed: false,
-        stopped_at: step.id,
-        reason: "a worker needs a human — read_worker mode=screen to see what it is asking",
-        results,
-      };
-    }
-
-    let text = "";
-    try {
-      text = readWorkerResult(entry.slug).text ?? "";
-    } catch (e) {
-      text = `(结果暂时读不到：${e.code})`;
-    }
-    results.push({
-      step: step.id,
-      ok: true,
-      worker_id: entry.slug,
-      title,
-      profile: step.profile,
-      branch,
-      attached: attached?.path,
-      result: text,
-    });
-    log(`preset ${name} step ${step.id} done worker=${entry.slug}`);
-  }
-
-  return { run: runId, preset: name, completed: true, results };
+  const steps = preset.steps.map((st) => ({
+    id: st.id,
+    profile: st.profile,
+    title: st.title ? render(st.title, inputs) : undefined,
+    branch: st.branch ? render(st.branch, inputs) : undefined,
+    attach: st.attach ? render(st.attach, inputs) : undefined,
+    task: Array.isArray(st.task) ? st.task.map((t) => render(t, inputs)) : render(st.task, inputs),
+  }));
+  const out = await runPlan({
+    steps,
+    base_ref: baseRef,
+    label: inputs.label || name,
+    branch: inputs.branch || null,
+    mode: preset.mode || "rex",
+  });
+  return { preset: name, ...out };
 }
 
 function waitForWorkers(workerIds) {
