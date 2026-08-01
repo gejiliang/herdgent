@@ -50,6 +50,67 @@ function run(cmd, args) {
   return { ok: !r.error && r.status === 0, out: (r.stdout || "") + (r.stderr || ""), code: r.status };
 }
 
+// ---- 前置依赖检查 ----
+// 逐段比数字，不是字符串比较：字符串比较会把 0.7.10 判成低于 0.7.5。
+const MIN_HERDR = [0, 7, 5];
+const MIN_NODE = [20, 11, 0];
+
+function parseVersion(text) {
+  const m = String(text).match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)] : null;
+}
+
+function cmpVersion(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+// 四项全查完再一次性报，不在第一项就退出——否则装的人得来回试三轮。
+function preflight() {
+  const problems = [];
+
+  const herdr = run("herdr", ["--version"]);
+  if (!herdr.ok) {
+    problems.push([
+      "herdr 命令不可用（不在 PATH 里，或跑不起来）",
+      `怎么补：装 herdr 并确保它在 PATH 里，装完 \`herdr --version\` 应 ≥ ${MIN_HERDR.join(".")}`,
+    ]);
+  } else {
+    const v = parseVersion(herdr.out);
+    if (!v) {
+      problems.push([
+        `herdr 版本认不出来：${herdr.out.trim().split("\n")[0] ?? "(空输出)"}`,
+        `怎么补：确认 \`herdr --version\` 能打出版本号，且 ≥ ${MIN_HERDR.join(".")}`,
+      ]);
+    } else if (cmpVersion(v, MIN_HERDR) < 0) {
+      problems.push([
+        `herdr 版本太低：${v.join(".")}，需要 ≥ ${MIN_HERDR.join(".")}`,
+        "怎么补：herdr update",
+      ]);
+    }
+  }
+
+  const nodeVer = parseVersion(process.versions.node);
+  if (!nodeVer || cmpVersion(nodeVer, MIN_NODE) < 0) {
+    problems.push([
+      `Node 版本太低：${process.versions.node}，需要 ≥ ${MIN_NODE.slice(0, 2).join(".")}`,
+      "怎么补：升级 Node（nvm install 20 && nvm use 20，或 brew upgrade node），再重跑本脚本",
+    ]);
+  }
+
+  const hasGit = run("git", ["--version"]).ok;
+  if (!hasGit) {
+    problems.push(["git 命令不可用（不在 PATH 里，或跑不起来）", "怎么补：装 git（macOS: xcode-select --install，或 brew install git）"]);
+  } else if (!run("git", ["-C", SRC, "rev-parse", "--is-inside-work-tree"]).ok) {
+    // 装的是「当前磁盘状态」，得能记下它对应哪个 commit；不是 git 仓库就无从追溯。
+    problems.push([`源目录不是 git 仓库：${SRC}`, "怎么补：在仓库的工作副本里跑本脚本（git clone 出来的目录，或 herdr worktree create 建的 worktree）"]);
+  }
+
+  return problems;
+}
+
 const git = gitInfo();
 const version = JSON.parse(readFileSync(join(SRC, "package.json"), "utf8")).version;
 const node = process.execPath;
@@ -73,6 +134,24 @@ const MCP_CMDS = [
 console.log(`herdgent ${version} (${git.commit}${git.dirty ? ", 工作区有未提交改动" : ""})`);
 console.log(`  源: ${SRC}`);
 console.log(`  目标: ${DEST}\n`);
+
+// 检查整体排在所有副作用（复制、MCP 注册、plugin link）之前：装到一半才失败
+// 留下的是半新半旧的 ~/.herdgent，比什么都没装更难收拾。
+// --print / --dry-run 本身没有副作用，所以只提示不拦——那两个模式正是用来
+// 「先看看要做什么」的，环境没配好也该能看。
+const problems = preflight();
+if (problems.length) {
+  const fatal = !dryRun && !printOnly;
+  console.log(`${fatal ? "✗" : "⚠️ "} 前置依赖不满足（${problems.length} 项）：\n`);
+  for (const [what, how] of problems) {
+    console.log(`  · ${what}`);
+    console.log(`    ${how}\n`);
+  }
+  if (fatal) {
+    console.log("都补齐后再跑一次 node bin/install.mjs。什么都没动。");
+    process.exit(1);
+  }
+}
 
 if (printOnly) {
   console.log("注册命令（自己跑）：");
