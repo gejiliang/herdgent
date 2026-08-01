@@ -39,6 +39,9 @@ run_plan({ label:"调研缓存方案", container:"tab", steps: [
 
 - `explore-fast` —— 便宜快，适合大扇出、粗筛
 - `review-gpt` / `review-gemini` / `review-kimi` / `review-deepseek` / `review-claude` —— 要判断力时用，各走一家厂商
+  （`review-claude` 跑不了命令，只能读文件——扇出调研里它看不了 `git log` 这类东西）
+
+profile 打包了 harness、模型和权限，**只能整包选**，`spawn_worker` 里另传 `harness` / `model` 会被忽略。
 
 **扇出宽就用便宜的**。十个方向全派最贵的模型是浪费，先用 `explore-fast` 铺开，
 发现值得深挖的再单独派好模型。
@@ -60,8 +63,8 @@ worker 交回来的是各自的发现。你的活是**综合**：
 - 先 `read_worker mode=screen` 看它到底在问什么
 - 能替它决定就 `send_to_worker` 回答
 - 需要人拍板就问人，**不要替人做不可逆的决定**（删数据、推远程、改生产配置）
-- 如果这类会话反复卡在权限上而任务本身是安全的，可以在 `spawn_worker` 时带 `yolo: true`
-  跳过权限提示——但这是人的选择，问过再用
+- 如果这类会话反复卡在权限上而任务本身是安全的，那是 **profile 选错了**（实现类 profile
+  本来就带 yolo）。你不能按次改权限——跟人说该用哪个 profile，或者让人改 profile 配置
 
 ## 出问题时
 

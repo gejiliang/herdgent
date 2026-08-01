@@ -75,41 +75,37 @@ try {
   const ping = await callTool("ping");
   check("三家 harness 都注册了", JSON.stringify(ping.harnesses) === '["claude","codex","pi"]', JSON.stringify(ping.harnesses));
 
-  const models = await callTool("list_models");
-  check("list_models 拿到模型清单", (models.count ?? 0) > 0, `${models.count} 个`);
-
   const profiles = await callTool("list_profiles");
   const names = (profiles.profiles || []).map((p) => p.name);
-  check("内置 profile 可列出", names.includes("claude-impl") && names.includes("review-gemini"), names.join(","));
+  check("内置 profile 可列出", names.includes("codex-impl") && names.includes("review-gemini"), names.join(","));
+  // 模型知识不进 herdgent：profile 不带任何可用性判断，模型名原样透传给网关。
   const gemini = (profiles.profiles || []).find((p) => p.name === "review-gemini");
-  check("profile 交叉核对了模型可用性", gemini?.model_available === true, String(gemini?.model_available));
+  check("profile 不夹带模型可用性判断", !("model_available" in (gemini ?? {})), JSON.stringify(Object.keys(gemini ?? {})));
 
   const badProfile = await callTool("spawn_worker", { title: "nope0", task: "x", profile: "no-such-profile" });
   check("未知 profile 被拒", badProfile.isError && badProfile.error === "unknown_profile", badProfile.error);
 
-  const bogus = await callTool("spawn_worker", { title: "nope", task: "x", harness: "gemini" });
-  check("未知 harness 被拒", bogus.isError && bogus.error === "unsupported_harness", bogus.error);
+  const noProfile = await callTool("spawn_worker", { title: "nope1", task: "x" });
+  check("不给 profile 被拒", noProfile.isError, noProfile.error);
 
   // 两家各起一个：claude 带 worktree（实现类），codex 不带（只读类）
+  // 三条通道各起一个。profile 是唯一入口——测试也必须走编排者该走的路，
+  // 否则测的就不是真实路径。
   const cases = [
-    { harness: "claude", title: "cross-claude", branch: "hg-cross-claude", token: "CLAUDE_SIDE_OK" },
-    { harness: "codex", title: "cross-codex", branch: null, token: "CODEX_SIDE_OK" },
-    // pi 是唯一能按模型派活的：跨厂商评审主要靠它
-    // 用 profile 而不是自己拼参数——这是编排者该走的路
+    { profile: "claude-impl", harness: "claude", title: "cross-claude", branch: "hg-cross-claude", token: "CLAUDE_SIDE_OK" },
+    { profile: "review-gpt", harness: "codex", title: "cross-codex", branch: null, token: "CODEX_SIDE_OK" },
     { profile: "review-gemini", harness: "pi", title: "cross-pi", branch: null, token: "PI_SIDE_OK" },
   ];
   for (const c of cases) {
     const r = await callTool("spawn_worker", {
       title: c.title,
-      harness: c.harness,
+      profile: c.profile,
       task: `Reply with exactly the token ${c.token} and nothing else.`,
       purpose: "explore",
       ...(c.branch ? { branch: c.branch } : {}),
-      ...(c.profile ? { profile: c.profile } : {}),
-      ...(c.profile ? {} : { yolo: true }),
     });
-    check(`spawn ${c.harness}${c.profile ? ` (profile ${c.profile})` : ""}`, !r.isError && !!r.worker_id, r.isError ? r.message : `${r.worker_id}`);
-    if (c.profile) check("profile 被记录", r.profile === c.profile, String(r.profile));
+    check(`spawn ${c.harness} (profile ${c.profile})`, !r.isError && !!r.worker_id, r.isError ? r.message : `${r.worker_id}`);
+    check("profile 被记录", r.profile === c.profile, String(r.profile));
     if (r.worker_id) spawned.push({ ...c, worker_id: r.worker_id });
   }
 
@@ -117,8 +113,18 @@ try {
   const kinds = (listed.workers || []).map((w) => w.harness).sort();
   check("登记表记录了各自的 harness", JSON.stringify(kinds) === '["claude","codex","pi"]', JSON.stringify(kinds));
 
-  const badModel = await callTool("spawn_worker", { title: "nope2", task: "x", harness: "claude", model: "gpt-5.6-sol" });
-  check("非 pi 指定模型被拒", badModel.isError && badModel.error === "model_not_supported", badModel.error);
+  // profile 是唯一真源：这四个维度即便显式传了也必须被忽略。
+  const override = await callTool("spawn_worker", {
+    title: "override-attempt",
+    task: "Reply with exactly OVERRIDE_PROBE and nothing else.",
+    profile: "review-gemini",
+    harness: "claude",
+    model: "gpt-5.6-sol",
+    read_only: false,
+    yolo: true,
+  });
+  check("显式参数盖不过 profile", !override.isError && override.harness === "pi", override.isError ? override.message : override.harness);
+  if (override.worker_id) spawned.push({ ...override, worker_id: override.worker_id, title: "override-attempt", token: "OVERRIDE_PROBE" });
 
   // 逐个等 + 读。两家的 transcript 定位与解析路径完全不同。
   for (const w of spawned) {

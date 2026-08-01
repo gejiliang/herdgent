@@ -31,7 +31,7 @@ rex 的每次编排都开一个 **git worktree workspace**，有自己的分支�
 
 ```
 run_plan({ label: "重构认证", steps: [
-  { id:"impl",   title:"impl",   profile:"claude-impl", task:"..." },
+  { id:"impl",   title:"impl",   profile:"codex-impl", task:"..." },
   { id:"review", title:"review", profile:["review-gpt","review-gemini"],
     attach:"diff_of:impl", task:"审查 {{attached}} …" },
 ]})
@@ -49,17 +49,24 @@ run_plan({ label: "重构认证", steps: [
 同一家评自己写的东西会一起漏掉同一类问题。这是 herdgent 存在的理由。
 
 `review-*` profile 覆盖 OpenAI、Google、Moonshot、DeepSeek、Anthropic 五家，
-只读由工具白名单强制，不是靠嘱咐。claude 实现的就别派 `review-claude`。
+只读是各家引擎级强制的，不是靠嘱咐。**codex 实现的别派 `review-gpt`，
+claude 实现的别派 `review-claude`，kimi 实现的别派 `review-kimi`**——同厂商评审等于没评。
 
-## 用 profile 派活，别自己拼参数
+`review-claude` 有个额外限制：它**跑不了任何命令**（只读靠禁掉 Bash 实现），
+所以给它派活时必须 `attach: "diff_of:<step>"` 把改动喂进去，否则它看不到你要它评什么。
 
-`list_profiles`。每个 profile 打包了 harness、模型、提示词和权限：
+## profile 是唯一入口
 
-- `claude-impl` / `codex-impl` / `kimi-impl` —— 实现者
-- `review-gpt` / `review-gemini` / `review-kimi` / `review-deepseek` / `review-claude` —— 只读评审
+`list_profiles`。一个 profile 打包了 harness、模型、提示词和权限，
+**这四样只能整包选，不能按次覆盖**——`spawn_worker` 里传 `harness` / `model` 会被忽略。
+
+- `codex-impl`（GPT-5.6 Terra）/ `kimi-impl`（Kimi K3 256K）—— 两个实现主力
+- `claude-impl` —— Claude Code 实现者
+- `review-gpt` / `review-claude` / `review-kimi` / `review-gemini` / `review-deepseek` —— 只读评审
 - `explore-fast` —— 便宜快的只读探索
 
-显式参数永远盖过 profile。**别拿 `model_available: false` 的 profile 去派活。**
+没有合适的 profile 就**跟人说**，别试图拼一个出来。要长期加一个角色，
+写进 `~/.herdgent/config/profiles.json`——那是留痕的，临时覆盖不是。
 
 ## 收尾
 
@@ -74,8 +81,8 @@ worker 跑完不会自动消失，分支和 worktree 也还在。人来决定：
 - 先 `read_worker mode=screen` 看它到底在问什么
 - 能替它决定就 `send_to_worker` 回答
 - 需要人拍板就问人，**不要替人做不可逆的决定**（删数据、推远程、改生产配置）
-- 如果这类会话反复卡在权限上而任务本身是安全的，可以在 `spawn_worker` 时带 `yolo: true`
-  跳过权限提示——但这是人的选择，问过再用
+- 如果这类会话反复卡在权限上而任务本身是安全的，那是 **profile 选错了**（实现类 profile
+  本来就带 yolo）。你不能按次改权限——跟人说该用哪个 profile，或者让人改 profile 配置
 
 ## 出问题时
 

@@ -209,14 +209,18 @@ run_preset(preset, inputs)          跑
 | `lib/modes.mjs` | 编排模式：rex（开发／worktree）与 fox（研究／tab） |
 | `skills/rex/`、`skills/fox/` | 两种编排各自的 playbook——**全部语义在这里**，prompt 不是代码 |
 
-### 十五个动词
+### 十四个动词
 
 `spawn_worker` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `list_workers`
-`set_worker_limit` · `list_profiles` · `list_models` · `orchestration_guide` · `herdr_status` · `ping`
+`set_worker_limit` · `list_profiles` · `orchestration_guide` · `herdr_status` · `ping`
 `list_presets` · `run_preset` · `run_plan`
 
-派活用 **profile**（`claude-impl` / `review-gemini` / `explore-fast` …）而不是自己拼参数。
-**评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
+派活只能用 **profile**（`codex-impl` / `kimi-impl` / `review-gemini` / `explore-fast` …），
+harness 和模型不能按次覆盖。**评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
+
+herdgent **不维护模型清单**——本地任何一份都会骗人（实测同一时刻 pi 的静态目录、
+网关活目录、`--list-models` 输出、网关白名单四者互不一致）。profile 里的模型名原样透传，
+由网关裁决，失败时如实报因。
 
 它们**没有一个认识「评审」「实现」「互审」是什么意思**——`purpose` 对代码只是个字符串。
 谁评审谁、评审不过怎么办，全在 skill 里。这是 [`AGENTS.md`](AGENTS.md) 那条边界的实际检验。

@@ -36,7 +36,7 @@ const {
   sendAndConfirm,
   readWorkerResult,
 } = await import("../lib/worker.mjs");
-const { SUPPORTED, getHarness } = await import("../lib/harness/index.mjs");
+const { SUPPORTED } = await import("../lib/harness/index.mjs");
 const { allProfiles, applyProfile } = await import("../lib/profiles.mjs");
 const { allPresets, getPreset, render, missingInputs } = await import("../lib/presets.mjs");
 const { allModes, getMode, skillPathFor } = await import("../lib/modes.mjs");
@@ -104,8 +104,8 @@ function log(line) {
   }
 }
 
-// 跑一个外部命令拿文本，失败一律返回 null。给 list_models 用——
-// 它问的是 pi 而不是 herdr，不该借用 herdr 的错误分类。
+// 跑一个外部命令拿文本，失败一律返回 null。给取 git diff 用——
+// 问的不是 herdr，不该借用 herdr 的错误分类。
 function runSafe(argv) {
   const r = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
   if (r.error || r.status !== 0) return null;
@@ -159,7 +159,7 @@ const TOOLS = [
   {
     name: "spawn_worker",
     description:
-      "Start a coding agent in its own herdr workspace and hand it a task. Returns immediately with a worker handle — the agent keeps running. Prefer naming a `profile` (see list_profiles) over assembling harness/model/flags yourself. Give `branch` to isolate the work in a git worktree (do this for anything that writes code); omit it for read-only work like review or exploration. Name the worker for the WORK it does (e.g. 'auth-refactor'), never for the vendor ('claude', 'worker').",
+      "Start a coding agent in its own herdr workspace and hand it a task. Returns immediately with a worker handle — the agent keeps running. `profile` decides everything about HOW it runs (harness, model, prompt, permissions) and is required; you choose the role, not the parts. Give `branch` to isolate the work in a git worktree (do this for anything that writes code); omit it for read-only work like review or exploration. Name the worker for the WORK it does (e.g. 'auth-refactor'), never for the vendor ('claude', 'worker').",
     inputSchema: {
       type: "object",
       properties: {
@@ -167,52 +167,26 @@ const TOOLS = [
         profile: {
           type: "string",
           description:
-            "Preset worker configuration (see list_profiles), e.g. 'claude-impl' or 'review-gemini'. Fills in harness, model and flags; anything you pass explicitly still wins.",
+            "Which profile to run this worker on (see list_profiles), e.g. 'codex-impl' or 'review-gemini'. This is the only way to pick harness/model/permissions — there is no per-call override. For cross-vendor review, dispatch the same task to profiles on different vendors.",
         },
         task: { type: "string", description: "The full instruction handed to the agent as its opening prompt" },
-        harness: {
-          type: "string",
-          description:
-            "Which agent CLI to run: 'claude' or 'codex'. Use a DIFFERENT vendor for review than the one that implemented — that independence is the whole point of cross-vendor review.",
-        },
         purpose: {
           type: "string",
           description: "What kind of work this is: implement, review, explore, or search. Recorded and displayed; herdgent does not interpret it.",
         },
         branch: { type: "string", description: "Git branch name; when given, the worker runs in its own git worktree" },
         cwd: { type: "string", description: "Repository path; defaults to the orchestration's repo" },
-        yolo: { type: "boolean", description: "Skip the agent's permission prompts entirely. No effect on pi, which has no approval gate." },
-        model: {
-          type: "string",
-          description:
-            "Which model to run. Only 'pi' supports this — it fronts every configured provider (Anthropic, OpenAI, Google, Moonshot, Qwen, GLM, DeepSeek), so this is how you get a genuinely different vendor's opinion. Call list_models to see what is available.",
-        },
-        read_only: {
-          type: "boolean",
-          description:
-            "Restrict the worker to read-only tools. Prefer this over yolo for review and exploration — it is enforced by the tool allowlist, not by asking nicely. pi only.",
-        },
       },
-      required: ["title", "task"],
+      required: ["title", "task", "profile"],
     },
     handler: async (args) => {
       assertCanSpawn();
       const spec = applyProfile(args);
-      const harness = spec.harness || "claude";
+      const harness = spec.harness;
       if (!SUPPORTED.includes(harness)) {
         throw Object.assign(
-          new Error(`unsupported harness '${harness}' (supported: ${SUPPORTED.join(", ")})`),
+          new Error(`profile '${args.profile}' names unsupported harness '${harness}' (supported: ${SUPPORTED.join(", ")})`),
           { code: "unsupported_harness" },
-        );
-      }
-
-      if (spec.model && !getHarness(harness).supportsModel) {
-        throw Object.assign(
-          new Error(
-            `harness '${harness}' cannot take a model (it only runs its own vendor's); ` +
-              `use harness 'pi' when you need a specific model`,
-          ),
-          { code: "model_not_supported" },
         );
       }
 
@@ -430,47 +404,11 @@ const TOOLS = [
   {
     name: "list_profiles",
     description:
-      "List the worker profiles available to spawn_worker. A profile bundles harness + model + flags under one name, so you pick a role instead of assembling five parameters. Model availability is cross-checked against what pi can actually run right now.",
+      "List the worker profiles you can dispatch. A profile is the ONLY way to say what a worker runs on — it carries the harness, model, prompt and permissions as one named unit, and you cannot override any of it per call. Pick the role you need; if none fits, say so to the human rather than trying to assemble one.",
     inputSchema: { type: "object", properties: {}, required: [] },
-    handler: async () => {
-      const profiles = allProfiles();
-      const listed = runSafe(["pi", "--list-models"]);
-      // 比对【全名】provider/model：裸名字会误判——pi 的模糊匹配可能命中
-      // 另一个 provider 的同名模型，那种「可用」是假的。
-      const available = new Set(
-        (listed ?? "")
-          .split("\n")
-          .slice(1)
-          .map((l) => l.trim().split(/\s+/))
-          .filter((c) => c.length >= 2 && c[0] && c[1])
-          .map(([provider, model]) => `${provider}/${model}`),
-      );
-      return {
-        profiles: Object.entries(profiles).map(([name, p]) => ({
-          name,
-          ...p,
-          // 模型名会随网关配置漂移。标出来，别让编排者拿着跑不起来的 profile 去派活。
-          model_available: p.model ? (listed == null ? "unknown" : available.has(p.model)) : null,
-        })),
-      };
-    },
-  },
-  {
-    name: "list_models",
-    description:
-      "List the models available to pi workers. Use it before dispatching a review to pick a vendor genuinely different from the implementer's.",
-    inputSchema: { type: "object", properties: {}, required: [] },
-    handler: async () => {
-      const out = runSafe(["pi", "--list-models"]);
-      if (out == null) return { available: false, note: "pi is not on PATH" };
-      const models = out
-        .split("\n")
-        .slice(1)
-        .map((l) => l.trim().split(/\s+/))
-        .filter((c) => c.length >= 2 && c[0] && c[1])
-        .map(([provider, model]) => `${provider}/${model}`);
-      return { models, count: models.length };
-    },
+    handler: async () => ({
+      profiles: Object.entries(allProfiles()).map(([name, p]) => ({ name, ...p })),
+    }),
   },
   {
     name: "set_worker_limit",
@@ -955,7 +893,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
           paneId,
           cwd: workCwd,
           task: render(pick(tasks, i), vars),
-          harness: spec.harness || "claude",
+          harness: spec.harness,
           role: "worker",
           root: ROOT,
           parent: ROOT,

@@ -9,7 +9,7 @@
     "node": ">=20.11"
   },
   "scripts": {
-    "test": "node test/concurrent-registry.mjs && node test/identity.mjs && node test/presets.mjs",
+    "test": "node test/concurrent-registry.mjs && node test/identity.mjs && node test/presets.mjs && node test/profiles.mjs",
     "install-local": "node bin/install.mjs"
   }
 }
