@@ -215,8 +215,13 @@ run_preset(preset, inputs)          跑
 `set_worker_limit` · `list_profiles` · `orchestration_guide` · `herdr_status` · `ping`
 `list_presets` · `run_preset` · `run_plan`
 
-派活只能用 **profile**（`codex-impl` / `kimi-impl` / `review-gemini` / `explore-fast` …），
-harness 和模型不能按次覆盖。**评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
+派活只能用 **profile**（`impl-gpt` / `impl-kimi` / `impl-sonnet` / `review-opus` / `review-gpt` /
+`review-kimi` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
+**评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
+
+三条通道按**配额池**分工：Claude 订阅最金贵，只做评审与需求分析（没有走原生 claude 的
+实现者）；ChatGPT 订阅走原生 codex；其余全部经 quota-proxy 网关——包括做实现主力的
+Sonnet 5，它走网关而不是订阅，正是为了把订阅额度留给评审。
 
 herdgent **不维护模型清单**——本地任何一份都会骗人（实测同一时刻 pi 的静态目录、
 网关活目录、`--list-models` 输出、网关白名单四者互不一致）。profile 里的模型名原样透传，

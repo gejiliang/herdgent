@@ -31,8 +31,8 @@ rex 的每次编排都开一个 **git worktree workspace**，有自己的分支�
 
 ```
 run_plan({ label: "重构认证", steps: [
-  { id:"impl",   title:"impl",   profile:"codex-impl", task:"..." },
-  { id:"review", title:"review", profile:["review-gpt","review-gemini"],
+  { id:"impl",   title:"impl",   profile:"impl-gpt", task:"..." },
+  { id:"review", title:"review", profile:["review-opus","review-kimi"],
     attach:"diff_of:impl", task:"审查 {{attached}} …" },
 ]})
 ```
@@ -48,22 +48,38 @@ run_plan({ label: "重构认证", steps: [
 **实现者不评审自己的活，reviewer 要换一家厂商。** 不同厂商的模型盲区不同，
 同一家评自己写的东西会一起漏掉同一类问题。这是 herdgent 存在的理由。
 
-`review-*` profile 覆盖 OpenAI、Google、Moonshot、DeepSeek、Anthropic 五家，
-只读是各家引擎级强制的，不是靠嘱咐。**codex 实现的别派 `review-gpt`，
-claude 实现的别派 `review-claude`，kimi 实现的别派 `review-kimi`**——同厂商评审等于没评。
+只读是各家引擎级强制的，不是靠嘱咐。配对时**看模型厂商，不是看 profile 名**：
 
-`review-claude` 有个额外限制：它**跑不了任何命令**（只读靠禁掉 Bash 实现），
-所以给它派活时必须 `attach: "diff_of:<step>"` 把改动喂进去，否则它看不到你要它评什么。
+| 实现用了 | 就别派 |
+|---|---|
+| `impl-gpt`（OpenAI） | `review-gpt` |
+| `impl-kimi`（Moonshot） | `review-kimi` |
+| `impl-sonnet`（Anthropic） | `review-opus` |
+
+`review-opus` 有个额外限制：它**跑不了任何命令**（只读靠禁掉 Bash 实现），
+所以派它必须 `attach: "diff_of:<step>"` 把改动喂进去，否则它看不到你要它评什么。
 
 ## profile 是唯一入口
 
-`list_profiles`。一个 profile 打包了 harness、模型、提示词和权限，
-**这四样只能整包选，不能按次覆盖**——`spawn_worker` 里传 `harness` / `model` 会被忽略。
+`list_profiles`。一个 profile 打包了 harness、模型、思考等级、提示词和权限，
+**只能整包选，不能按次覆盖**——`spawn_worker` 里传 `harness` / `model` 会被忽略。
 
-- `codex-impl`（GPT-5.6 Terra）/ `kimi-impl`（Kimi K3 256K）—— 两个实现主力
-- `claude-impl` —— Claude Code 实现者
-- `review-gpt` / `review-claude` / `review-kimi` / `review-gemini` / `review-deepseek` —— 只读评审
-- `explore-fast` —— 便宜快的只读探索
+实现（S 级，思考等级拉满）：
+- `impl-gpt` —— GPT-5.6 Terra，原生 Codex
+- `impl-kimi` —— Kimi Code K3 256K
+- `impl-sonnet` —— Claude Sonnet 5，**经网关不经订阅**
+
+评审（S+ 级，只读，思考等级拉满）：
+- `review-opus` —— Claude Opus 5，原生 Claude Code
+- `review-gpt` —— GPT-5.6 Sol，原生 Codex
+- `review-kimi` —— Kimi Code K3（1M 上下文）
+
+探索：
+- `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，用在大扇出粗筛
+
+**Claude 订阅是最金贵的那个池子**，所以没有走原生 claude 的实现者——它只做评审
+（需求分析和设计是编排者自己在干，也在这个池子里）。要更多算力就多派 `impl-gpt`
+和 `impl-kimi`，别想着把实现挪到 claude 上。
 
 没有合适的 profile 就**跟人说**，别试图拼一个出来。要长期加一个角色，
 写进 `~/.herdgent/config/profiles.json`——那是留痕的，临时覆盖不是。

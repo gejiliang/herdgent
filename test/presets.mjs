@@ -25,7 +25,7 @@ const { allPresets, getPreset, render, missingInputs } = await import(
   check("内置预设可列出", names.includes("impl-and-review") && names.includes("fanout-review"), names.join(","));
   const p = getPreset("impl-and-review");
   check("预设声明了 inputs", Object.keys(p.inputs).length > 0, Object.keys(p.inputs).join(","));
-  check("评审步骤用的是另一家厂商", p.steps[1].profile === "review-gemini", p.steps[1].profile);
+  check("评审步骤用的是另一家厂商", p.steps[1].profile === "review-opus", p.steps[1].profile);
   // branch 是【容器级】的，不再挂在步骤上；容器类型才是模板要声明的东西
   check("写代码的预设用 rex 模式", p.mode === "rex", String(p.mode));
   check("只读预设用 fox 模式", getPreset("fanout-review").mode === "fox", String(getPreset("fanout-review").mode));
@@ -59,8 +59,8 @@ const { allPresets, getPreset, render, missingInputs } = await import(
     join(home, "config", "presets.json"),
     JSON.stringify({
       presets: {
-        "impl-and-review": { steps: [{ id: "only", profile: "codex-impl", task: "{{task}}" }] },
-        "my-own": { description: "自定义的", steps: [{ id: "a", profile: "explore-fast", task: "x" }] },
+        "impl-and-review": { steps: [{ id: "only", profile: "impl-gpt", task: "{{task}}" }] },
+        "my-own": { description: "自定义的", steps: [{ id: "a", profile: "explore-deepseek", task: "x" }] },
       },
     }),
   );

@@ -77,10 +77,10 @@ try {
 
   const profiles = await callTool("list_profiles");
   const names = (profiles.profiles || []).map((p) => p.name);
-  check("内置 profile 可列出", names.includes("codex-impl") && names.includes("review-gemini"), names.join(","));
+  check("内置 profile 可列出", names.includes("impl-gpt") && names.includes("review-kimi"), names.join(","));
   // 模型知识不进 herdgent：profile 不带任何可用性判断，模型名原样透传给网关。
-  const gemini = (profiles.profiles || []).find((p) => p.name === "review-gemini");
-  check("profile 不夹带模型可用性判断", !("model_available" in (gemini ?? {})), JSON.stringify(Object.keys(gemini ?? {})));
+  const kimi = (profiles.profiles || []).find((p) => p.name === "review-kimi");
+  check("profile 不夹带模型可用性判断", !("model_available" in (kimi ?? {})), JSON.stringify(Object.keys(kimi ?? {})));
 
   const badProfile = await callTool("spawn_worker", { title: "nope0", task: "x", profile: "no-such-profile" });
   check("未知 profile 被拒", badProfile.isError && badProfile.error === "unknown_profile", badProfile.error);
@@ -88,13 +88,12 @@ try {
   const noProfile = await callTool("spawn_worker", { title: "nope1", task: "x" });
   check("不给 profile 被拒", noProfile.isError, noProfile.error);
 
-  // 两家各起一个：claude 带 worktree（实现类），codex 不带（只读类）
   // 三条通道各起一个。profile 是唯一入口——测试也必须走编排者该走的路，
   // 否则测的就不是真实路径。
   const cases = [
-    { profile: "claude-impl", harness: "claude", title: "cross-claude", branch: "hg-cross-claude", token: "CLAUDE_SIDE_OK" },
-    { profile: "review-gpt", harness: "codex", title: "cross-codex", branch: null, token: "CODEX_SIDE_OK" },
-    { profile: "review-gemini", harness: "pi", title: "cross-pi", branch: null, token: "PI_SIDE_OK" },
+    { profile: "review-opus", harness: "claude", title: "cross-claude", branch: null, token: "CLAUDE_SIDE_OK" },
+    { profile: "impl-gpt", harness: "codex", title: "cross-codex", branch: "hg-cross-codex", token: "CODEX_SIDE_OK" },
+    { profile: "review-kimi", harness: "pi", title: "cross-pi", branch: null, token: "PI_SIDE_OK" },
   ];
   for (const c of cases) {
     const r = await callTool("spawn_worker", {
@@ -117,7 +116,7 @@ try {
   const override = await callTool("spawn_worker", {
     title: "override-attempt",
     task: "Reply with exactly OVERRIDE_PROBE and nothing else.",
-    profile: "review-gemini",
+    profile: "review-kimi",
     harness: "claude",
     model: "gpt-5.6-sol",
     read_only: false,

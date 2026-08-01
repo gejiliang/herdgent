@@ -167,7 +167,7 @@ const TOOLS = [
         profile: {
           type: "string",
           description:
-            "Which profile to run this worker on (see list_profiles), e.g. 'codex-impl' or 'review-gemini'. This is the only way to pick harness/model/permissions — there is no per-call override. For cross-vendor review, dispatch the same task to profiles on different vendors.",
+            "Which profile to run this worker on (see list_profiles), e.g. 'impl-gpt' or 'review-opus'. This is the only way to pick harness/model/permissions — there is no per-call override. For cross-vendor review, dispatch the same task to profiles on different vendors.",
         },
         task: { type: "string", description: "The full instruction handed to the agent as its opening prompt" },
         purpose: {
@@ -216,6 +216,7 @@ const TOOLS = [
         branch: args.branch || null,
         yolo: !!spec.yolo,
         model: spec.model || null,
+        effort: spec.effort || null,
         readOnly: !!spec.read_only,
       });
 
@@ -904,6 +905,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
           workspaceId: space.workspaceId,
           yolo: !!spec.yolo,
           model: spec.model || null,
+          effort: spec.effort || null,
           readOnly: !!spec.read_only,
           prompt: spec.prompt || null,
         });

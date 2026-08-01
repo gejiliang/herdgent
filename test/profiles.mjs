@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // profile 的数据层验收。不碰 herdr，不起会话，所以进 npm test。
 //
-// 这里守的是一条【产品级】不变量：profile 是「用什么跑」的唯一真源。
-// 能被按次覆盖的话，分工就管不住——编排者可以绕过人定的分工自己挑模型，
-// 而谁干活、谁评审、烧谁的额度恰恰是人要掌握的那一层。
+// 这里守两条【产品级】不变量：
+//   1. profile 是「用什么跑」的唯一真源。能被按次覆盖的话，分工就管不住——
+//      编排者可以绕过人定的分工自己挑模型，而谁干活、谁评审、烧谁的额度
+//      恰恰是人要掌握的那一层。
+//   2. Claude 订阅只用于评审。它是三个池子里最金贵的，实现再急也不烧它。
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,46 +22,74 @@ process.env.HERDGENT_HOME = home;
 
 const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.mjs?t=${Date.now()}`);
 
-// ---- 三条通道的分工 ----
+// ---- 命名：角色在前 ----
 {
-  const p = allProfiles();
-  check("两个实现主力在", !!p["codex-impl"] && !!p["kimi-impl"], Object.keys(p).join(","));
-  check("GPT 走原生 codex", p["codex-impl"].harness === "codex", p["codex-impl"].harness);
-  check("Claude 走原生 claude", p["claude-impl"].harness === "claude", p["claude-impl"].harness);
-  check("review-gpt 也走原生 codex", p["review-gpt"].harness === "codex", p["review-gpt"].harness);
-  check("review-claude 也走原生 claude", p["review-claude"].harness === "claude", p["review-claude"].harness);
-
-  // pi 只承载其余厂商——出现 gpt/claude 系就是分工漏了。
-  const piModels = Object.values(p)
-    .filter((x) => x.harness === "pi" && x.model)
-    .map((x) => x.model);
+  const names = Object.keys(allProfiles());
   check(
-    "pi 不承载 GPT / Claude",
-    !piModels.some((m) => /gpt|claude/i.test(m)),
-    piModels.join(", "),
+    "profile 名都是 <角色>-<模型>",
+    names.every((n) => /^(impl|review|explore)-/.test(n)),
+    names.join(","),
   );
-  check("pi 的模型都带 provider 前缀", piModels.every((m) => m.includes("/")), piModels.join(", "));
-
-  // 评审必须是只读的，否则「评审」会去改代码——踩过。
-  const reviewers = Object.entries(p).filter(([n]) => n.startsWith("review-"));
-  check("所有 review-* 都是只读", reviewers.every(([, x]) => x.read_only === true), `${reviewers.length} 个`);
-  check("所有 review-* 都不 yolo", reviewers.every(([, x]) => !x.yolo), `${reviewers.length} 个`);
 }
 
-// ---- profile 是唯一真源：这四个维度覆盖不了 ----
+// ---- 配额分池 ----
+{
+  const p = allProfiles();
+  const impls = Object.entries(p).filter(([n]) => n.startsWith("impl-"));
+  const reviews = Object.entries(p).filter(([n]) => n.startsWith("review-"));
+
+  check("三个实现档位都在", impls.length === 3, impls.map(([n]) => n).join(","));
+  // 这是【本表存在的理由】：Claude 订阅留给评审和需求分析，不做实现。
+  check(
+    "没有走原生 claude 的实现者",
+    impls.every(([, x]) => x.harness !== "claude"),
+    impls.map(([n, x]) => `${n}:${x.harness}`).join(" "),
+  );
+  // Sonnet 5 做实现主力，但走网关而不是订阅——这正是上一条能成立的原因。
+  check(
+    "Sonnet 5 经网关而非订阅",
+    p["impl-sonnet"].harness === "pi" && p["impl-sonnet"].model.startsWith("quota-proxy/"),
+    `${p["impl-sonnet"].harness} ${p["impl-sonnet"].model}`,
+  );
+  check("GPT 实现走原生 codex", p["impl-gpt"].harness === "codex", p["impl-gpt"].harness);
+  check("Opus 5 评审走原生 claude", p["review-opus"].harness === "claude", p["review-opus"].harness);
+
+  // 评审必须是只读的，否则「评审」会去改代码——踩过。
+  check("所有 review-* 都是只读", reviews.every(([, x]) => x.read_only === true), `${reviews.length} 个`);
+  check("所有 review-* 都不 yolo", reviews.every(([, x]) => !x.yolo), `${reviews.length} 个`);
+  check("所有 impl-* 都要分支", impls.every(([, x]) => x.wants_branch === true), `${impls.length} 个`);
+
+  // 经 pi 的模型必须带 provider 前缀：不带的话 pi 会模糊匹配到别家，
+  // 报 "No API key found" 而任务静默不执行。
+  const piModels = Object.values(p).filter((x) => x.harness === "pi" && x.model).map((x) => x.model);
+  check("pi 的模型都带 provider 前缀", piModels.every((m) => m.includes("/")), piModels.join(", "));
+}
+
+// ---- 思考等级 ----
+{
+  const p = allProfiles();
+  const heavy = Object.entries(p).filter(([n]) => /^(impl|review)-/.test(n));
+  check("实现与评审的思考等级全拉满", heavy.every(([, x]) => x.effort === "max"), heavy.map(([n, x]) => `${n}:${x.effort}`).join(" "));
+  // explore 的定位是快 + 便宜。拉满就既不快也不便宜，那就该直接派评审档的模型。
+  check("explore 不拉思考等级", !p["explore-deepseek"].effort, String(p["explore-deepseek"].effort));
+}
+
+// ---- profile 是唯一真源：这些维度覆盖不了 ----
 {
   const spec = applyProfile({
-    profile: "review-gemini",
+    profile: "review-kimi",
     title: "x",
     task: "y",
     harness: "claude",
-    model: "quota-proxy/gpt-5.6-sol",
+    model: "gpt-5.6-sol",
+    effort: "low",
     yolo: true,
     read_only: false,
   });
-  const p = getProfile("review-gemini");
+  const p = getProfile("review-kimi");
   check("harness 盖不过", spec.harness === p.harness, `${spec.harness} vs ${p.harness}`);
   check("model 盖不过", spec.model === p.model, `${spec.model} vs ${p.model}`);
+  check("effort 盖不过", spec.effort === "max", String(spec.effort));
   check("yolo 盖不过", spec.yolo === false, String(spec.yolo));
   check("read_only 盖不过", spec.read_only === true, String(spec.read_only));
   check("prompt 来自 profile", spec.prompt === p.prompt, spec.prompt?.slice(0, 20));
@@ -92,8 +122,8 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
     join(home, "config", "profiles.json"),
     JSON.stringify({
       profiles: {
-        "review-gemini": { model: "quota-proxy/gemini-3.5-flash-low" },
-        "my-reviewer": { harness: "pi", model: "quota-proxy/bailian-glm-5.2", read_only: true },
+        "review-kimi": { model: "quota-proxy/ark-kimi-k3" },
+        "review-minimax": { harness: "pi", model: "quota-proxy/ark-minimax-m3", read_only: true, effort: "max" },
       },
     }),
   );
@@ -101,14 +131,14 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
     `../lib/profiles.mjs?t=${Date.now()}-2`
   );
   const p = reload();
-  check("用户可新增 profile", !!p["my-reviewer"], Object.keys(p).join(","));
-  check("新增的标 user", p["my-reviewer"].source === "user", p["my-reviewer"].source);
-  check("同名部分覆盖内置", p["review-gemini"].model === "quota-proxy/gemini-3.5-flash-low", p["review-gemini"].model);
-  check("覆盖被标记", p["review-gemini"].source === "user-override", p["review-gemini"].source);
+  check("用户可新增 profile", !!p["review-minimax"], Object.keys(p).join(","));
+  check("新增的标 user", p["review-minimax"].source === "user", p["review-minimax"].source);
+  check("同名部分覆盖内置", p["review-kimi"].model === "quota-proxy/ark-kimi-k3", p["review-kimi"].model);
+  check("覆盖被标记", p["review-kimi"].source === "user-override", p["review-kimi"].source);
   // 只写了 model 的话，内置的 prompt / read_only 要留着——否则「只覆盖模型」
   // 会悄悄把只读评审变成可写的。
-  check("未覆盖的字段保留内置值", p["review-gemini"].read_only === true, String(p["review-gemini"].read_only));
-  check("覆盖后仍是唯一真源", apply2({ profile: "review-gemini", model: "x" }).model === "quota-proxy/gemini-3.5-flash-low");
+  check("未覆盖的字段保留内置值", p["review-kimi"].read_only === true, String(p["review-kimi"].read_only));
+  check("覆盖后仍是唯一真源", apply2({ profile: "review-kimi", model: "x" }).model === "quota-proxy/ark-kimi-k3");
 }
 
 rmSync(home, { recursive: true, force: true });

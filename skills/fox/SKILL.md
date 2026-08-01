@@ -23,7 +23,7 @@ description: 研究编排：并行派只读 worker 调查，汇总成结论。�
 
 ```
 run_plan({ label:"调研缓存方案", container:"tab", steps: [
-  { id:"survey", title:"survey", profile:"explore-fast",
+  { id:"survey", title:"survey", profile:"explore-deepseek",
     task:["看 A 方案怎么实现的","看 B 方案怎么实现的","看现有代码怎么用缓存的"] },
 ]})
 ```
@@ -37,14 +37,15 @@ run_plan({ label:"调研缓存方案", container:"tab", steps: [
 
 `list_profiles`。研究只用只读的那些：
 
-- `explore-fast` —— 便宜快，适合大扇出、粗筛
-- `review-gpt` / `review-gemini` / `review-kimi` / `review-deepseek` / `review-claude` —— 要判断力时用，各走一家厂商
-  （`review-claude` 跑不了命令，只能读文件——扇出调研里它看不了 `git log` 这类东西）
+- `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，适合大扇出粗筛
+- `review-opus` / `review-gpt` / `review-kimi` —— 要判断力时用，各走一家厂商，思考等级拉满
+  （`review-opus` 跑不了命令，只能读文件——扇出调研里它看不了 `git log` 这类东西）
 
-profile 打包了 harness、模型和权限，**只能整包选**，`spawn_worker` 里另传 `harness` / `model` 会被忽略。
+profile 打包了 harness、模型、思考等级和权限，**只能整包选**，
+`spawn_worker` 里另传 `harness` / `model` 会被忽略。
 
-**扇出宽就用便宜的**。十个方向全派最贵的模型是浪费，先用 `explore-fast` 铺开，
-发现值得深挖的再单独派好模型。
+**扇出宽就用便宜的**。十个方向全派评审档的模型是浪费，先用 `explore-deepseek` 铺开，
+发现值得深挖的再单独派好模型。`review-opus` 尤其省着用——那是 Claude 订阅额度。
 
 ## 综合，别转述
 
