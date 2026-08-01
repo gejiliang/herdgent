@@ -21,11 +21,16 @@ import {
   readdirSync,
 } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { herdgentHome, stateRoot, configRoot, workflowsRoot, legacyPaths } from "../lib/paths.mjs";
 
-const SRC = resolve(import.meta.dirname, "..");
+// 【顶层代码不许用 20.11+ 的 API】：Node 版本不够正是这个脚本要拦的场景之一，
+// 而顶层语句排在 preflight() 之前——这里用 import.meta.dirname（20.11 才有）的话，
+// 低版本上会先炸出一条原始 TypeError，「需要 Node ≥ 20.11、怎么升级」永远打印不出来。
+// fileURLToPath 从 Node 10 就在。
+const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEST = herdgentHome();
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
@@ -137,20 +142,16 @@ console.log(`  目标: ${DEST}\n`);
 
 // 检查整体排在所有副作用（复制、MCP 注册、plugin link）之前：装到一半才失败
 // 留下的是半新半旧的 ~/.herdgent，比什么都没装更难收拾。
-// --print / --dry-run 本身没有副作用，所以只提示不拦——那两个模式正是用来
-// 「先看看要做什么」的，环境没配好也该能看。
+// 不分模式：依赖不满足就是不满足，--dry-run / --print 一样非零退出。
 const problems = preflight();
 if (problems.length) {
-  const fatal = !dryRun && !printOnly;
-  console.log(`${fatal ? "✗" : "⚠️ "} 前置依赖不满足（${problems.length} 项）：\n`);
+  console.log(`✗ 前置依赖不满足（${problems.length} 项）：\n`);
   for (const [what, how] of problems) {
     console.log(`  · ${what}`);
     console.log(`    ${how}\n`);
   }
-  if (fatal) {
-    console.log("都补齐后再跑一次 node bin/install.mjs。什么都没动。");
-    process.exit(1);
-  }
+  console.log("都补齐后再跑一次 node bin/install.mjs。什么都没动。");
+  process.exit(1);
 }
 
 if (printOnly) {
