@@ -3,7 +3,7 @@
 // 所以不进 npm test；按 AGENTS.md 的隔离配方在命名会话里手动跑：
 //
 //   HERDR_SOCKET_PATH=~/.config/herdr/sessions/herdgentdev/herdr.sock \
-//   HERDGENT_STATE_DIR=/tmp/hg-spawn-test \
+//   HERDGENT_STATE_DIR=/tmp/hg-dev-state \
 //   node test/integration-spawn.mjs
 //
 // 会真的起 N 个 harness 会话（消耗订阅额度），跑完自动回收 workspace / worktree / 分支。

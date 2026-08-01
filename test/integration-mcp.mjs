@@ -4,6 +4,7 @@
 //
 // 【需要真的 herdr server 和真的 harness】，不进 npm test。按隔离配方跑：
 //   HERDR_SOCKET_PATH=~/.config/herdr/sessions/herdgentdev/herdr.sock \
+//   HERDGENT_STATE_DIR=/tmp/hg-dev-state \
 //   node test/integration-mcp.mjs
 //
 // 走协议而不是直接 import 函数：这样测的是 orchestrator 真正会看到的接口。

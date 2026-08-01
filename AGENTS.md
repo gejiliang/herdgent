@@ -22,22 +22,33 @@
 plugin 安装是**用户全局**的（herdr 0.7.5 起），但**运行时可以完全隔离**——用命名会话：
 
 ```sh
-# 起隔离的 herdr server：env 必须先擦干净，否则会继承当前 pane 的 HERDR_SOCKET_PATH 连回 default
+# 起隔离的 herdr server。两件事都是必须的：
+#   · env 擦干净——否则继承当前 pane 的 HERDR_SOCKET_PATH，连回 default
+#   · HERDGENT_STATE_DIR——把整个 session 的 registry 挪到临时目录（见下）
 env -u HERDR_SOCKET_PATH -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
-    HERDR_SESSION=herdgentdev herdr server &
+    -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_EXECPATH -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID \
+    -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_PID -u CLAUDE_EFFORT \
+    HERDR_SESSION=herdgentdev HERDGENT_STATE_DIR=/tmp/hg-dev-state herdr server &
 
 export HERDR_SOCKET_PATH=~/.config/herdr/sessions/herdgentdev/herdr.sock
 
-# 用完清理（state 落在真目录，见下，dev 数据要手动清）
+# 用完清理：真状态目录一个字节都没被碰过
 herdr session stop herdgentdev && herdr session delete herdgentdev
-rm -rf ~/.local/state/herdr/plugins/herdgent/{registry.json,sessions,hook.log}
+rm -rf /tmp/hg-dev-state
 ```
 
 **擦 env 是必须的**，不是保险动作：从一个 herdr pane 里起 server，它会继承 `HERDR_SOCKET_PATH` 并指回 default，于是你以为在隔离环境里做的事全落在 GG 的工作区。
 
 **同时要擦 `CLAUDE_CODE_*` / `CLAUDECODE` / `CLAUDE_PID`**（若从 Claude Code 里起 server）：server 把自己的环境传给它起的每个 pane 和 agent，脏 env 会让受管会话关掉 transcript、标题串台，`transcript_path` 也就拿不到了。
 
-⚠️ **`HERDR_PLUGIN_STATE_DIR` 不能用来隔离 state（实测 2026-07-31）。** 它是 herdr **注入**给插件命令的，不是读取的——你 export 什么都会被覆盖成 `~/.local/state/herdr/plugins/<plugin-id>/`。所以命名会话隔离的是 workspace/pane/agent，**不隔离 registry**：dev 跑出来的登记记录会落进真状态目录，用完手动清（见上）。要真隔离 state 只有换 plugin id 这一条路。
+**state 怎么隔离**（实测 2026-08-01）：
+
+- ❌ `HERDR_PLUGIN_STATE_DIR` 没用。它是 herdr **注入**给插件命令的，不是读取的——export 什么都会被覆盖成 `~/.local/state/herdr/plugins/<plugin-id>/`。
+- ✅ **`HERDGENT_STATE_DIR` 有用**，因为那是 herdgent 自己的变量（`lib/registry.mjs` 里优先级最高），herdr 不认识它、也就不会覆盖。
+  在**起 server 时**设上，它会一路穿到这个 session 的每一处：plugin action → worker 会话 → 全局注册的 MCP server。
+  实测：dev session 里的 plugin 读到的是临时目录的 registry，同一时刻 default session 读到的是真表，两边互不可见。
+
+→ 所以**不需要给开发副本换 plugin id**。一条环境变量就够，而且清理只是 `rm -rf /tmp/hg-dev-state`。
 
 **dev / prod 要不要分两套？** 不用建两套环境，herdr 已经给了三条隔离轴：
 1. **plugin id** —— config/state 目录按 id 分（`herdr plugin config-dir <ID>`）。等到稳定版天天用、又要继续开发时，再让开发副本换个 id；现在只有 link 的开发副本，一个 id 够用。

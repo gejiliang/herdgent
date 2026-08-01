@@ -3,6 +3,7 @@
 //
 // 【需要真的 herdr server 和两家 CLI】，不进 npm test：
 //   HERDR_SOCKET_PATH=~/.config/herdr/sessions/herdgentdev/herdr.sock \
+//   HERDGENT_STATE_DIR=/tmp/hg-dev-state \
 //   node test/integration-crossharness.mjs
 //
 // 这是 herdgent 存在的理由：只有一家的话 Claude Code 自己的 dynamic workflow 就够了。
