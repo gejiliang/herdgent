@@ -680,7 +680,12 @@ function resolveArtifact(spec, ctx) {
         { code: "no_branch_for_diff" },
       );
     }
-    const ref = upstream ? `${ctx.baseRef}..${ctx.branch}` : rest;
+    // ⚠️ 【三点，不是两点】。`main..branch` 比较两个 commit 的当前状态，于是
+    // 「main 上有而分支没有」的提交会显示成【分支删除了它们】——分支一旦落后于
+    // main（长编排里必然发生），评审就会看到大片凭空的删除。真踩过：评审据此
+    // 判了 FAIL，指控实现者删掉了一个它根本没碰过的文件。
+    // `main...branch` 比较的是分支相对【共同祖先】做了什么，这才是「这次改动」。
+    const ref = upstream ? `${ctx.baseRef}...${ctx.branch}` : rest;
     const out = runSafe(["git", "-C", ctx.repo, "diff", ref]);
     if (out == null) {
       throw Object.assign(new Error(`git diff ${ref} failed in ${ctx.repo}`), { code: "diff_failed" });
