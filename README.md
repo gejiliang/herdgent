@@ -219,9 +219,14 @@ run_preset(preset, inputs)          跑
 `review-kimi` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
 
-三条通道按**配额池**分工：Claude 订阅最金贵，只做评审与需求分析（没有走原生 claude 的
-实现者）；ChatGPT 订阅走原生 codex；其余全部经 quota-proxy 网关——包括做实现主力的
-Sonnet 5，它走网关而不是订阅，正是为了把订阅额度留给评审。
+两条硬约束定住了这张表：
+
+1. **Claude 模型做 agent 只能走原生通道。** 网关（quota-proxy）代理的 Claude 只适合简单调用，
+   不能拿来跑 agent。所以 `impl-sonnet` / `review-opus` 都是原生 Claude Code，经 pi 的
+   profile 里不会出现任何 Claude 模型——有测试守着。
+2. **Claude 订阅是最金贵的池子**，优先留给评审与需求分析／设计（后者是编排者自己在干）。
+   所以实现主力是 `impl-gpt`（ChatGPT 订阅）和 `impl-kimi`（网关），`impl-sonnet` 只是
+   **fallback**：前两个都不可用时才派。这是调度语义，写在 skill 里，引擎不认识它。
 
 herdgent **不维护模型清单**——本地任何一份都会骗人（实测同一时刻 pi 的静态目录、
 网关活目录、`--list-models` 输出、网关白名单四者互不一致）。profile 里的模型名原样透传，

@@ -65,9 +65,9 @@ run_plan({ label: "重构认证", steps: [
 **只能整包选，不能按次覆盖**——`spawn_worker` 里传 `harness` / `model` 会被忽略。
 
 实现（S 级，思考等级拉满）：
-- `impl-gpt` —— GPT-5.6 Terra，原生 Codex
-- `impl-kimi` —— Kimi Code K3 256K
-- `impl-sonnet` —— Claude Sonnet 5，**经网关不经订阅**
+- `impl-gpt` —— GPT-5.6 Terra，原生 Codex ← **主力**
+- `impl-kimi` —— Kimi Code K3 256K ← **主力**
+- `impl-sonnet` —— Claude Sonnet 5，原生 Claude Code ← **fallback，见下**
 
 评审（S+ 级，只读，思考等级拉满）：
 - `review-opus` —— Claude Opus 5，原生 Claude Code
@@ -77,9 +77,13 @@ run_plan({ label: "重构认证", steps: [
 探索：
 - `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，用在大扇出粗筛
 
-**Claude 订阅是最金贵的那个池子**，所以没有走原生 claude 的实现者——它只做评审
-（需求分析和设计是编排者自己在干，也在这个池子里）。要更多算力就多派 `impl-gpt`
-和 `impl-kimi`，别想着把实现挪到 claude 上。
+### `impl-sonnet` 是 fallback，不是第三个主力
+
+**Claude 订阅是最金贵的那个池子**，留给评审和需求分析／设计（后者是你自己在干）。
+实现一律派 `impl-gpt` 和 `impl-kimi`——**只有这两个都不可用时才派 `impl-sonnet`**。
+
+要更多并行算力，就多派前两个（同一个 profile 可以派好几份，给它们互不重叠的活），
+不要因为「再来一家厂商更好」就把 `impl-sonnet` 拉进常规编排。
 
 没有合适的 profile 就**跟人说**，别试图拼一个出来。要长期加一个角色，
 写进 `~/.herdgent/config/profiles.json`——那是留痕的，临时覆盖不是。

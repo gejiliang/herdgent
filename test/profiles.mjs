@@ -39,20 +39,32 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
   const reviews = Object.entries(p).filter(([n]) => n.startsWith("review-"));
 
   check("三个实现档位都在", impls.length === 3, impls.map(([n]) => n).join(","));
-  // 这是【本表存在的理由】：Claude 订阅留给评审和需求分析，不做实现。
+
+  // 硬约束 1：Claude 模型做 agent 只能走原生通道。网关代理的 Claude 只适合
+  // 简单调用，拿来跑 agent 不行。所以【经 pi 的 profile 里不能出现 claude 模型】。
+  const viaPi = Object.entries(p).filter(([, x]) => x.harness === "pi");
   check(
-    "没有走原生 claude 的实现者",
-    impls.every(([, x]) => x.harness !== "claude"),
-    impls.map(([n, x]) => `${n}:${x.harness}`).join(" "),
+    "没有经网关跑的 Claude 模型",
+    viaPi.every(([, x]) => !/claude/i.test(x.model ?? "")),
+    viaPi.map(([n, x]) => `${n}:${x.model}`).join(" "),
   );
-  // Sonnet 5 做实现主力，但走网关而不是订阅——这正是上一条能成立的原因。
-  check(
-    "Sonnet 5 经网关而非订阅",
-    p["impl-sonnet"].harness === "pi" && p["impl-sonnet"].model.startsWith("quota-proxy/"),
-    `${p["impl-sonnet"].harness} ${p["impl-sonnet"].model}`,
-  );
+  check("Sonnet 5 走原生 claude", p["impl-sonnet"].harness === "claude", `${p["impl-sonnet"].harness} ${p["impl-sonnet"].model}`);
+  check("Opus 5 走原生 claude", p["review-opus"].harness === "claude", p["review-opus"].harness);
   check("GPT 实现走原生 codex", p["impl-gpt"].harness === "codex", p["impl-gpt"].harness);
-  check("Opus 5 评审走原生 claude", p["review-opus"].harness === "claude", p["review-opus"].harness);
+
+  // 硬约束 2：Claude 订阅留给评审与需求分析，所以两个实现【主力】不许烧它。
+  // impl-sonnet 是 fallback，允许走 claude，但必须在 description 里说清楚——
+  // 「什么时候派」是调度语义，活在 skill 里，引擎不认识它。
+  check(
+    "两个实现主力不烧 Claude 订阅",
+    p["impl-gpt"].harness !== "claude" && p["impl-kimi"].harness !== "claude",
+    `${p["impl-gpt"].harness} ${p["impl-kimi"].harness}`,
+  );
+  check(
+    "唯一走 claude 的实现者标着 fallback",
+    /FALLBACK/i.test(p["impl-sonnet"].description),
+    p["impl-sonnet"].description.slice(0, 60),
+  );
 
   // 评审必须是只读的，否则「评审」会去改代码——踩过。
   check("所有 review-* 都是只读", reviews.every(([, x]) => x.read_only === true), `${reviews.length} 个`);
