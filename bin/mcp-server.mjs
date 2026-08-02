@@ -32,6 +32,7 @@ const {
   splitForParallel,
   setStageStatus,
   markStageRunning,
+  reconcileLive,
   findWorker,
   sendAndConfirm,
   readWorkerResult,
@@ -132,6 +133,9 @@ function publicView(s) {
     purpose: s.purpose,
     harness: s.harness,
     status: s.status,
+    // status 是【归属】（还在不在这次编排里），agent_status 是【活儿】
+    // （working / idle / done / blocked，herdr 现报的）。两件事，两格。
+    agent_status: s.agent_status ?? null,
     workspace_id: s.workspace_id,
     tab_id: s.tab_id,
     pane_id: s.pane_id,
@@ -204,6 +208,10 @@ const TOOLS = [
 
       // 闸在 spawn 前查，不在 registry 里做——登记发生在 startManagedSession 内部，
       // 那时容器已经建好了，再拒绝就得回滚。
+      //
+      // 数之前先跟 herdr 对账：registry 的状态是缓存，跑完/死掉的 worker 不对账
+      // 就永远算 live，闸会被幽灵记录一点点堵死（FIXME #1）。
+      reconcileLive(ROOT);
       const limit = workerLimit();
       const before = registry.countLive(ROOT);
       if (before.inRoot >= limit) {
@@ -262,6 +270,9 @@ const TOOLS = [
       "List the workers this orchestration has started, with their current status. Use it to recover your view after losing track, or to check what is still running before spawning more.",
     inputSchema: { type: "object", properties: {}, required: [] },
     handler: async () => {
+      // 先对账再报数：编排者调这个多半就是因为「我不确定现在有几个在跑」，
+      // 这时给它一份过期的缓存等于没答。
+      reconcileLive(ROOT);
       const rows = registry.list().filter((s) => s.role === "worker" && s.root === ROOT);
       const counts = registry.countLive(ROOT);
       return {
@@ -739,12 +750,19 @@ function settledNow(slug) {
     turns = null; // transcript 还没生成 / 还没回填路径
   }
 
-  if (turns != null) {
-    return turns > (w.dispatch_turns ?? 0) ? { status, seq, turns } : null;
-  }
+  const done =
+    turns != null
+      ? turns > (w.dispatch_turns ?? 0)
+      : !(w.dispatch_seq != null && seq != null && seq <= w.dispatch_seq);
+  if (!done) return null;
 
-  if (w.dispatch_seq != null && seq != null && seq <= w.dispatch_seq) return null;
-  return { status, seq };
+  // 写回 herdr 报的实时状态。不写回的话 registry 永远停在 active，
+  // 「这个 worker 跑完了没」就只能靠编排者自己记着（FIXME #1）。
+  registry.update((reg) => {
+    const row = Object.values(reg.sessions).find((x) => x.slug === slug);
+    if (row) row.agent_status = status;
+  });
+  return turns != null ? { status, seq, turns } : { status, seq };
 }
 
 // 一次编排 = 一个 worktree workspace，挂在父 repo 下；环节是 tab，环节内并行是 pane。
