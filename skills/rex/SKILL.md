@@ -90,9 +90,12 @@ run_plan({ label: "重构认证", steps: [
 
 ## 收尾
 
-worker 跑完不会自动消失，分支和 worktree 也还在。人来决定：
-`cancel_worker mode=terminate` 会回收工作区、worktree 和分支，**不可逆**。
-给人的总结要说清楚：谁做了什么、评审结论、分支在哪、还剩什么没做。
+**你不收容器。** worker 跑完不会自动消失，tab、worktree、分支全都留着——
+那是人回看整个过程的唯一入口，也是成果所在。合不合、删不删由人决定，
+你没有这个动词（`cancel_worker` 也不删任何东西，见下）。
+
+你要交的是一份能直接看的总结：谁做了什么、评审结论是什么、**分支在哪**、
+还剩什么没做。分支路径务必写出来，那是人接着往下走的入口。
 
 ## worker 回报 `blocked` 时
 
@@ -110,8 +113,8 @@ worker 跑完不会自动消失，分支和 worktree 也还在。人来决定：
   再失败就 `read_worker mode=screen` 看那个会话怎么了。
 - **worker 跑歪了 / 跑飞了** —— `cancel_worker` 用 `mode=interrupt` 停掉当前这一轮，
   worker 还活着，可以直接 `send_to_worker` 纠正方向，不用重起。
-- **worker 彻底没用了** —— `cancel_worker` 用 `mode=terminate`，它会回收工作区、worktree 和分支。
-  这是不可逆的，确认过再用。
+- **worker 彻底没用了** —— `cancel_worker` 用 `mode=terminate`：停掉它、从编排里除名
+  （不再占并发额度），但**不删任何东西**——pane、tab、worktree、分支全都留着。
 - **不确定现在有几个在跑** —— `list_workers`。
 
 ## 并发

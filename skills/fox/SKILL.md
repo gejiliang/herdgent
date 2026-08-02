@@ -73,8 +73,8 @@ worker 交回来的是各自的发现。你的活是**综合**：
   再失败就 `read_worker mode=screen` 看那个会话怎么了。
 - **worker 跑歪了 / 跑飞了** —— `cancel_worker` 用 `mode=interrupt` 停掉当前这一轮，
   worker 还活着，可以直接 `send_to_worker` 纠正方向，不用重起。
-- **worker 彻底没用了** —— `cancel_worker` 用 `mode=terminate`，它会回收工作区、worktree 和分支。
-  这是不可逆的，确认过再用。
+- **worker 彻底没用了** —— `cancel_worker` 用 `mode=terminate`：停掉它、从编排里除名
+  （不再占并发额度），但**不删任何东西**——pane、tab、worktree、分支全都留着。
 - **不确定现在有几个在跑** —— `list_workers`。
 
 ## 并发

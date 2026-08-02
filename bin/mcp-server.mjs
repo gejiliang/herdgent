@@ -31,8 +31,8 @@ const {
   openStageTab,
   splitForParallel,
   setStageStatus,
+  markStageRunning,
   findWorker,
-  reclaimSession,
   sendAndConfirm,
   readWorkerResult,
 } = await import("../lib/worker.mjs");
@@ -122,6 +122,7 @@ function publicView(s) {
     harness: s.harness,
     status: s.status,
     workspace_id: s.workspace_id,
+    tab_id: s.tab_id,
     pane_id: s.pane_id,
     branch: s.worktree_branch,
     cwd: s.cwd,
@@ -527,7 +528,7 @@ const TOOLS = [
   {
     name: "send_to_worker",
     description:
-      "Send a follow-up instruction to a worker that is already running. Use this to answer a worker that came back 'blocked', or to correct course. Returns submitted=false if the text could not be confirmed as submitted — treat that as 'not delivered' and retry rather than assuming it landed.",
+      "Send a follow-up instruction to a worker that is already running. Use this to answer a worker that came back 'blocked', or to send work back for rework. Its stage tab automatically flips back to in-progress, so the sidebar stops claiming that step is finished. Returns submitted=false if the text could not be confirmed as submitted — treat that as 'not delivered' and retry rather than assuming it landed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -547,6 +548,11 @@ const TOOLS = [
       }
       const r = sendAndConfirm(w.pane_id, args.text, { harness: w.harness || "claude" });
       if (r.submitted) {
+        // 派了新活 → 这个环节又在跑了，tab 后缀从 ✓ 退回 ⋯。
+        // 挂在这里而不是给编排者一个「改状态」的动词：状态该由【实际发生的事】
+        // 驱动。靠编排者记得去标一定会漏——review 打回 impl 那次就是这么漏的，
+        // 侧栏显示「全部完成」而实际上有人正在返工。
+        markStageRunning(ROOT, w.tab_id);
         // 基线取【发送前】的 seq，不能取 seq_after：sendAndConfirm 一观察到变化就返回，
         // 而一个极短的任务在那之前就跑完了——拿终态当基线等于要求「比终态更新」，
         // wait 会永久等下去（实测踩到，卡了 10 分钟）。用 seq_before 则任何后续变化都严格大于它。
@@ -565,7 +571,7 @@ const TOOLS = [
   {
     name: "cancel_worker",
     description:
-      "Stop a worker. mode='interrupt' (default) aborts only its current turn — the worker stays alive and you can send it new work. mode='terminate' shuts the worker down and reclaims its workspace, git worktree and branch; that is irreversible.",
+      "Stop a worker. mode='interrupt' (default) aborts its current turn; the worker stays in the orchestration and you can send it new work. mode='terminate' also drops it from the orchestration so it stops counting against the worker limit. NEITHER mode destroys anything: the pane, tab, worktree and branch all stay, because they are the human's record of what happened. Terminating one worker never touches its siblings.",
     inputSchema: {
       type: "object",
       properties: {
@@ -598,16 +604,33 @@ const TOOLS = [
         });
       }
 
-      const steps = reclaimSession(w);
+      // ⚠️ terminate 【绝不能】回收容器。以前这里调 reclaimSession(w)，而 worker 的
+      // workspace_id 是【整个编排共用的那个 workspace】——于是「终止一个 worker」
+      // 实际会 worktree remove 掉整个容器、git branch -D 掉分支，连同还在跑的
+      // 兄弟 worker 和已经产出的成果一起没。踩过：一次 terminate 端掉了同一编排里
+      // 已经评审完的 pane，人回头去看，tab 已经不在了。
+      //
+      // 现在 terminate 的含义是【从编排里除名】：停掉当前这一轮（不再烧额度），
+      // 不再计入并发闸，不再被 wait 等待。终端留着——那是人回看过程的唯一入口。
+      // worktree 与分支的去留是编排级的收尾决定，归人，不归这个动词。
+      tryHerdr(["agent", "send-keys", w.pane_id, "ctrl+c"]);
       registry.update((reg) => {
         const row = Object.values(reg.sessions).find((s) => s.slug === w.slug);
         if (row) {
           row.status = "terminated";
           row.terminated_at = new Date().toISOString();
-          row.reclaim_steps = steps;
         }
       });
-      return { worker_id: w.slug, method: "terminate", alive: false, steps };
+      return {
+        worker_id: w.slug,
+        method: "terminate",
+        counted_in_limit: false,
+        pane_id: w.pane_id,
+        branch: w.worktree_branch,
+        note:
+          "dropped from this orchestration; its pane, tab, worktree and branch are untouched. " +
+          "Tell the human where the branch is if it has work on it.",
+      };
     },
   },
 ];
@@ -818,8 +841,63 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
   const results = [];
   log(`plan start run=${id} steps=${steps.length} ws=${space.workspaceId}`);
 
+  // ---- tab 一次建齐 ----
+  //
+  // 以前是跑到哪一步建哪个 tab，于是人在侧栏只看得到「已经发生的部分」，
+  // 看不出这次编排一共几步、后面还有什么。整个计划的形状在第一秒就该是可见的。
+  //
+  // 序号跨 run_plan 连续（从 space.tabsUsed 起算）：同一个容器里第二次 run_plan
+  // 要是又从 1 开始，侧栏就会出现两个「1 xxx」，谁也分不清哪个是哪次。
+  const stages = [];
+  const startNo = space.tabsUsed;
+  try {
+    for (const [index, step] of steps.entries()) {
+      const stepId = step.id ?? String(index);
+      // worktree 模式下 workspace 名已经带了「模式 · 任务」，tab 不必重复；
+      // tab 模式的 tab 跟人自己的 tab 混在一个 space 里，必须带全名才分得清。
+      const no = startNo + index + 1;
+      const baseLabel =
+        space.container === "tab"
+          ? `${spaceLabel} · ${no} ${step.title || stepId}`
+          : `${no} ${step.title || stepId}`;
+      const opened = openStageTab({
+        workspaceId: space.workspaceId,
+        // 第一个环节复用容器自带的那个 tab，否则会白白多出一个空 tab。
+        label: `${baseLabel} ☐`,
+        reuseTabId: space.tabsUsed === 0 ? space.rootTabId : null,
+      });
+      space.tabsUsed += 1;
+      stages.push({ ...opened, baseLabel, stepId });
+    }
+  } catch (e) {
+    results.push({ step: "(tabs)", ok: false, error: e.code || "tab_failed", message: e.message });
+    return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: "(tabs)", results };
+  }
+
+  // 标签存进 registry：状态要能【回退】（review 打回 impl 时 impl 那个 tab 从 ✓
+  // 退回 ⋯），而回退发生在这次 run_plan 返回【之后】，局部变量那时已经没了。
+  registry.putOrchestration(ROOT, {
+    tabs_used: space.tabsUsed,
+    stages: {
+      ...(registry.getOrchestration(ROOT)?.stages ?? {}),
+      ...Object.fromEntries(
+        stages.map((s) => [s.tabId, { label: s.baseLabel, step: s.stepId, status: "pending" }]),
+      ),
+    },
+  });
+
+  // 读-改-写在一把锁里，理由同 markStageRunning。
+  function recordStage(tabId, status) {
+    registry.update((reg) => {
+      const stage = reg.orchestrations[ROOT]?.stages?.[tabId];
+      if (stage) stage.status = status;
+    });
+  }
+
   for (const [index, step] of steps.entries()) {
     const stepId = step.id ?? String(index);
+    const stage = stages[index];
+    const stageLabel = stage.baseLabel;
     const tasks = Array.isArray(step.task) ? step.task : [step.task];
     const profiles = Array.isArray(step.profile) ? step.profile : [step.profile];
 
@@ -850,27 +928,9 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
       }
     }
 
-    // 环节 = 一个 tab。第一个环节复用 worktree 自带的 tab，否则会多出一个空的。
-    // tab 模式下 tab 与用户自己的 tab 混在同一个 space 里，所以要带上编排名，
-    // 否则过一会儿没人分得清哪个 tab 是哪次编排开的。
-    // worktree 模式下 workspace 名已经带了「模式 · 任务」，tab 不必重复；
-    // tab 模式的 tab 跟人自己的 tab 混在一个 space 里，必须带全名才分得清。
-    const stageLabel =
-      space.container === "tab"
-        ? `${spaceLabel} · ${index + 1} ${step.title || stepId}`
-        : `${index + 1} ${step.title || stepId}`;
-    let stage;
-    try {
-      stage = openStageTab({
-        workspaceId: space.workspaceId,
-        label: `${stageLabel} ${"⋯"}`,
-        reuseTabId: space.tabsUsed === 0 ? space.rootTabId : null,
-      });
-      space.tabsUsed += 1;
-    } catch (e) {
-      results.push({ step: stepId, ok: false, error: e.code || "tab_failed", message: e.message });
-      return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
-    }
+    // 轮到这一步了：☐ → ⋯
+    setStageStatus(stage.tabId, stageLabel, "running");
+    recordStage(stage.tabId, "running");
 
     const spawned = [];
     for (let i = 0; i < n; i += 1) {
@@ -885,6 +945,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         paneId = i === 0 ? stage.rootPaneId : splitForParallel(stage.rootPaneId, i);
       } catch (e) {
         setStageStatus(stage.tabId, stageLabel, "failed");
+        recordStage(stage.tabId, "failed");
         results.push({ step: stepId, ok: false, error: e.code || "split_failed", message: e.message });
         return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
       }
@@ -903,6 +964,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
           branch: space.branch,
           repo: REPO,
           workspaceId: space.workspaceId,
+          tabId: stage.tabId,
           yolo: !!spec.yolo,
           model: spec.model || null,
           effort: spec.effort || null,
@@ -912,6 +974,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         spawned.push({ slug: entry.slug, title, profile: profileName });
       } catch (e) {
         setStageStatus(stage.tabId, stageLabel, "failed");
+        recordStage(stage.tabId, "failed");
         results.push({ step: stepId, ok: false, error: e.code || "spawn_failed", message: e.message });
         log(`plan ${id} step ${stepId} spawn failed: ${e.message}`);
         return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
@@ -924,6 +987,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
     const blocked = settled.filter((x) => x.status === "blocked");
     if (blocked.length) {
       setStageStatus(stage.tabId, stageLabel, "blocked");
+      recordStage(stage.tabId, "blocked");
       results.push({
         step: stepId,
         ok: false,
@@ -943,6 +1007,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
     }
 
     setStageStatus(stage.tabId, stageLabel, "done");
+    recordStage(stage.tabId, "done");
     results.push({
       step: stepId,
       ok: true,
