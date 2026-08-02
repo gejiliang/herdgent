@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // 并发闸的存活判定。不碰 herdr——只测「registry 里什么算占位」这套规则。
 //
-// 修的是 FIXME(#1)：status 只在两处写入（spawn 时 active、terminate 时 terminated），
-// wait 查到的 done / idle 从不写回，于是跑完但没显式 terminate 的 worker 永远算 live，
-// 静默占着并发额度，撞上限时也看不出是被谁占的。
+// 原始缺陷（FIXME #1）：没人把【agent 已经没了】的 worker 从 active 改走，
+// 于是它永远算 live，静默占着并发额度，撞上限时也看不出是被谁占的。
+// 修的是「缺对账」，不是「判据写错了」——判据一直是白名单，且必须是白名单。
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,34 +34,37 @@ function seed(rows) {
 }
 
 // ---- 什么算占位 ----
+//
+// status 的取值域是封闭的，只有五个写入点。判据必须是【白名单】：
+// 黑名单要求穷举所有死法（含历史遗留的），漏一种就多一个幽灵占着并发额度。
+// 真踩过——改成黑名单后，早期版本留下的 reclaimed 记录立刻把并发数虚报成 3。
 {
   seed([
     { status: "active" },
     { status: "starting" },
-    { status: "done" }, // 跑完了但没除名——【仍然占位】
-    { status: "idle" }, // 待命——【仍然占位】
     { status: "terminated" }, // 显式从编排除名
-    { status: "dead" }, // agent 已经不在了
+    { status: "dead" }, // 对账发现 agent 没了
     { status: "failed" }, // 起都没起来
+    { status: "reclaimed" }, // 【早期版本的历史状态】——不认识的一律不算 live
+    { status: "something-we-never-heard-of" },
   ]);
   const c = registry.countLive("R");
-  check("done / idle 仍然算占位", c.inRoot === 4, `${c.inRoot} 个（期望 active+starting+done+idle=4）`);
+  check("只有 starting / active 占位", c.inRoot === 2, `${c.inRoot} 个`);
 
-  // 反过来说：这三种【不】占位，否则并发闸会被幽灵记录一点点堵死。
-  const gone = registry.liveWorkerRows("R").map((r) => r.status);
-  check("terminated 不占位", !gone.includes("terminated"), gone.join(","));
-  check("dead 不占位", !gone.includes("dead"), gone.join(","));
-  check("failed 不占位", !gone.includes("failed"), gone.join(","));
+  const live = registry.liveWorkerRows("R").map((r) => r.status).sort();
+  check("认不出的状态一律不占位", JSON.stringify(live) === '["active","starting"]', live.join(","));
 }
 
-// ---- 为什么 done 要算占位 ----
+// ---- worker 跑完了仍然占位 ----
 //
-// 一个 done 的 worker 进程还在，占着 pane、上下文和人的注意力，编排者随时可以
-// send_to_worker 让它接着干。闸拦的是「同时开着多少个会话」，不只是「同时烧多少额度」。
+// 跑完不等于它没了：进程还在、pane 还占着、编排者随时能 send_to_worker 让它接着干。
+// 所以 status 保持 active，herdr 报的 done/idle 写在 agent_status 那格——两件事，两格。
+// 混在一格里的话，「done 了但还归这次编排管」就没法表达。
 {
-  seed(Array.from({ length: 6 }, () => ({ status: "done" })));
+  seed(Array.from({ length: 6 }, () => ({ status: "active", agent_status: "done" })));
   const c = registry.countLive("R");
-  check("六个 done 会撞上默认闸", c.inRoot >= 6, `${c.inRoot}`);
+  check("六个跑完的 worker 仍占满闸", c.inRoot === 6, `${c.inRoot}`);
+  check("agent_status 不影响占位判定", registry.liveWorkerRows("R").every((r) => r.agent_status === "done"));
 }
 
 // ---- 归属边界 ----
