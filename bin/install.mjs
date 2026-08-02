@@ -120,6 +120,10 @@ const git = gitInfo();
 const version = JSON.parse(readFileSync(join(SRC, "package.json"), "utf8")).version;
 const node = process.execPath;
 const server = join(DEST, "bin", "mcp-server.mjs");
+const PI_AGENT_DIR = join(homedir(), ".pi", "agent");
+const PI_SETTINGS = join(PI_AGENT_DIR, "settings.json");
+const PI_MCP_CONFIG = join(PI_AGENT_DIR, "mcp.json");
+const PI_MCP_ADAPTER = "npm:pi-mcp-adapter";
 
 const MCP_CMDS = [
   {
@@ -134,7 +138,62 @@ const MCP_CMDS = [
     add: ["mcp", "add", "herdgent", "--", node, server],
     remove: ["mcp", "remove", "herdgent"],
   },
+  {
+    // Pi 本体没有 mcp add；先用它自己的 CLI 确保 adapter 包存在，再合并 Pi 专属的
+    // mcp.json。adapter 的 packages 入口由 pi install 维护，不能手改 settings.json。
+    kind: "pi",
+    bin: "pi",
+    add: ["install", PI_MCP_ADAPTER],
+  },
 ];
+
+function piHasMcpAdapter() {
+  if (!existsSync(PI_SETTINGS)) return false;
+  const settings = JSON.parse(readFileSync(PI_SETTINGS, "utf8"));
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    throw new Error(`${PI_SETTINGS} 不是 JSON 对象`);
+  }
+  return Array.isArray(settings.packages) && settings.packages.some(
+    (pkg) => typeof pkg === "string" && (pkg === PI_MCP_ADAPTER || pkg.startsWith(`${PI_MCP_ADAPTER}@`)),
+  );
+}
+
+function registerPiMcp(cmd) {
+  // 跟 skill 安装同一判据：不存在 Pi 的 agent 目录就说明 Pi 没装，不创建它。
+  if (!existsSync(PI_AGENT_DIR)) {
+    console.log("  pi 没装，跳过");
+    return;
+  }
+
+  try {
+    if (!piHasMcpAdapter()) {
+      const installed = run(cmd.bin, cmd.add);
+      if (!installed.ok) {
+        console.log(`✗ pi: ${PI_MCP_ADAPTER} 安装失败（${installed.code}）${installed.out.trim().split("\n")[0] ?? ""}`);
+        return;
+      }
+    }
+
+    // pi-mcp-adapter 没有逐个 server 的 CLI 命令。先读再只替换同名条目，绝不覆盖
+    // settings / imports / 其他 mcpServers；同时保留已有的 mcpServers 键名写法。
+    const config = existsSync(PI_MCP_CONFIG) ? JSON.parse(readFileSync(PI_MCP_CONFIG, "utf8")) : {};
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error(`${PI_MCP_CONFIG} 不是 JSON 对象`);
+    }
+    const serverKey = Object.hasOwn(config, "mcpServers") ? "mcpServers" : Object.hasOwn(config, "mcp-servers") ? "mcp-servers" : "mcpServers";
+    const mcpServers = config[serverKey] ?? {};
+    if (!mcpServers || typeof mcpServers !== "object" || Array.isArray(mcpServers)) {
+      throw new Error(`${PI_MCP_CONFIG} 的 ${serverKey} 不是对象`);
+    }
+    const herdgent = { command: node, args: [server] };
+    if (JSON.stringify(mcpServers.herdgent) !== JSON.stringify(herdgent)) {
+      writeFileSync(PI_MCP_CONFIG, JSON.stringify({ ...config, [serverKey]: { ...mcpServers, herdgent } }, null, 2) + "\n");
+    }
+    console.log(`✓ pi: 已注册 → ${server}`);
+  } catch (e) {
+    console.log(`✗ pi: 注册失败：${e.message}`);
+  }
+}
 
 console.log(`herdgent ${version} (${git.commit}${git.dirty ? ", 工作区有未提交改动" : ""})`);
 console.log(`  源: ${SRC}`);
@@ -162,7 +221,14 @@ if (problems.length) {
 
 if (printOnly) {
   console.log("注册命令（自己跑）：");
-  for (const c of MCP_CMDS) console.log(`  ${c.bin} ${c.add.join(" ")}`);
+  for (const c of MCP_CMDS) {
+    if (c.kind === "pi") {
+      console.log(`  ${c.bin} ${c.add.join(" ")}  # 仅当 ${PI_MCP_ADAPTER} 未安装时`);
+      console.log(`  Pi 配置合并：${PI_MCP_CONFIG} 的 mcpServers.herdgent → ${node} ${server}`);
+      continue;
+    }
+    console.log(`  ${c.bin} ${c.add.join(" ")}`);
+  }
   console.log(`\nherdr 插件：\n  herdr plugin unlink herdgent  # 若之前 link 的是开发副本\n  herdr plugin link ${DEST}`);
   process.exit(0);
 }
@@ -175,7 +241,13 @@ if (git.dirty) {
 if (dryRun) {
   console.log("--dry-run，实际什么都不做。会执行的是：");
   console.log(`  1. 复制 ${RUNTIME.join(", ")} → ${DEST}`);
-  for (const c of MCP_CMDS) console.log(`  2. ${c.bin} ${c.add.join(" ")}`);
+  for (const c of MCP_CMDS) {
+    if (c.kind === "pi") {
+      console.log(`  2. ${c.bin} ${c.add.join(" ")}（仅当 adapter 未安装时）；合并 ${PI_MCP_CONFIG} 的 herdgent 条目`);
+      continue;
+    }
+    console.log(`  2. ${c.bin} ${c.add.join(" ")}`);
+  }
   console.log(`  3. herdr plugin link ${DEST}`);
   process.exit(0);
 }
@@ -280,6 +352,10 @@ for (const [kind, dir] of Object.entries(legacyPaths())) {
 
 // ---- 2. 注册 MCP ----
 for (const c of MCP_CMDS) {
+  if (c.kind === "pi") {
+    registerPiMcp(c);
+    continue;
+  }
   // 先移除同名再加，否则旧的绝对路径会留在配置里。用两个 CLI 自己的命令读写配置，
   // 不手改 JSON——先 GET 再 PUT 的等价做法。
   const rm = run(c.bin, c.remove);
