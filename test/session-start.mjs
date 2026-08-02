@@ -74,6 +74,46 @@ const { sessionStartProfile, applyProfile, getProfile, DEFAULT_SESSION_START_PRO
   rmSync(dir, { recursive: true, force: true });
 }
 
+// ---- 情况 3b：JSON 合法但字段类型不对 → 不抛异常，回默认 ----
+{
+  const dir = mkdtempSync(join(tmpdir(), "hg-sscfg-"));
+  for (const bad of [123, ["impl-kimi"], null, { name: "impl-kimi" }, true]) {
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: bad }));
+    let threw = false;
+    let name = null;
+    try {
+      name = sessionStartProfile(dir);
+    } catch {
+      threw = true;
+    }
+    check(`类型不对（${JSON.stringify(bad)}）不抛异常、回默认`, !threw && name === DEFAULT_SESSION_START_PROFILE, String(name));
+  }
+  // 空白字符串也不是有效 profile 名
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: "   " }));
+  check("空白字符串 → 默认", sessionStartProfile(dir) === DEFAULT_SESSION_START_PROFILE);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// ---- 五个字段真的到位：applyProfile(sessionStartProfile(dir)) 的返回值 ----
+// 不起会话——断言返回 spec 里 harness / model / yolo / effort / prompt 都在
+// 且等于该 profile 的定义值。bin/session-start.mjs 把这五个字段透传给
+// startManagedSession，spec 对就说明会传下去。
+{
+  const dir = mkdtempSync(join(tmpdir(), "hg-sscfg-"));
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: "impl-kimi" }));
+  const spec = applyProfile({ profile: sessionStartProfile(dir) });
+  const p = getProfile("impl-kimi");
+  for (const key of ["harness", "model", "yolo", "effort", "prompt"]) {
+    const expected = p[key] ?? (key === "yolo" ? false : null);
+    check(
+      `透传字段 ${key} 等于 profile 定义值`,
+      spec[key] !== undefined && spec[key] === expected,
+      `${JSON.stringify(spec[key])?.slice(0, 40)} vs ${JSON.stringify(expected)?.slice(0, 40)}`,
+    );
+  }
+  rmSync(dir, { recursive: true, force: true });
+}
+
 // ---- 情况 4：配置里写了不存在的 profile 名 → 起会话之前就报错 ----
 {
   const dir = mkdtempSync(join(tmpdir(), "hg-sscfg-"));
