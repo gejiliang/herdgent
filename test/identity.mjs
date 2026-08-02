@@ -109,8 +109,30 @@ try {
     env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "", HERDR_SOCKET_PATH: DEAD_SOCKET },
   });
   check("CLI 直连被判为编排者", cli.ping.role === "orchestrator", cli.ping.role);
-  check("CLI 直连 root 是一次性的", String(cli.ping.root).startsWith("orc:cli:"), cli.ping.root);
+  check("root 绑在项目上", String(cli.ping.root).startsWith("orc:repo:"), cli.ping.root);
   check("编排者拿得到 spawn_worker", cli.tools.includes("spawn_worker"));
+
+  // ---- 1b. 【会话重启后 root 不变】----
+  // 这是 root 绑项目而不是绑会话的全部理由：早先 root 取 harness session id，
+  // GG 一重启会话上一轮的 worker 就全部落在射程外——list_workers 空数组，
+  // 而 live_across_all_orchestrations 显示 1，看得见却碰不到。
+  const restarted = await probe({
+    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "", HERDR_SOCKET_PATH: DEAD_SOCKET },
+  });
+  check("重启后 root 不变", restarted.ping.root === cli.ping.root, `${cli.ping.root} vs ${restarted.ping.root}`);
+
+  // 同一个项目、不同 pane（herdr 里另开一个 tab）也该是同一次编排
+  const otherPane = await probe({
+    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "w99:p1", HERDR_SOCKET_PATH: DEAD_SOCKET },
+  });
+  check("同项目另一个 pane 同 root", otherPane.ping.root === cli.ping.root, otherPane.ping.root);
+
+  // 换个项目就该是另一次编排
+  const elsewhere = await probe({
+    args: ["--repo", tmpdir()],
+    env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "", HERDR_SOCKET_PATH: DEAD_SOCKET },
+  });
+  check("换项目换 root", elsewhere.ping.root !== cli.ping.root, elsewhere.ping.root);
 
   // ---- 2. herdr 里的 worker pane：认出自己是 worker ----
   const worker = await probe({
@@ -120,6 +142,13 @@ try {
   check("worker pane 被判为 worker", worker.ping.role === "worker", worker.ping.role);
   check("worker 继承所属编排的 root", worker.ping.root === "orc-test", worker.ping.root);
   check("worker 的工具列表里没有 spawn_worker", !worker.tools.includes("spawn_worker"), worker.tools.join(","));
+  // run_plan / run_preset 也要藏起来：它们内部会被 assertCanSpawn 拒，但列在表里
+  // 会让 worker 排完一整个计划再撞墙，那一轮思考全白费。
+  check(
+    "worker 也看不到 run_plan / run_preset",
+    !worker.tools.includes("run_plan") && !worker.tools.includes("run_preset"),
+    worker.tools.join(","),
+  );
   check("worker 仍保留只读工具", worker.tools.includes("read_worker") && worker.tools.includes("list_workers"));
   // 两层防护，任一生效即可：
   //   外层——工具压根没注册，MCP 直接 -32602 unknown tool（实际走的是这层）
@@ -129,7 +158,7 @@ try {
     (worker.spawnResult.isError && worker.spawnResult.error === "workers_cannot_spawn");
   check("worker 硬调 spawn_worker 被拒", refused, JSON.stringify(worker.spawnResult).slice(0, 90));
 
-  // ---- 3. 显式 --root（orchestrate action 那条路）----
+  // ---- 3. 显式 --root（逃生口：把一次编排钉死在给定 id 上）----
   const explicit = await probe({
     args: ["--root", "orc-explicit"],
     env: { HERDGENT_STATE_DIR: state, HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: DEAD_SOCKET },

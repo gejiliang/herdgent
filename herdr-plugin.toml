@@ -14,12 +14,6 @@ platforms = ["macos"]
 command = ["node", "bin/reconcile.mjs"]
 
 [[actions]]
-id = "orchestrate"
-title = "Herdgent: start orchestrator"
-contexts = ["workspace"]
-command = ["node", "bin/orchestrate.mjs"]
-
-[[actions]]
 id = "session-start"
 title = "Herdgent: start managed session"
 contexts = ["workspace"]

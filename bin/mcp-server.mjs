@@ -43,10 +43,15 @@ const { allModes, getMode, skillPathFor } = await import("../lib/modes.mjs");
 
 // ---- 我是谁、这次编排叫什么 ----
 //
-// MCP server 有三条启动路径，身份和 root 各不相同：
-//   1. orchestrate action 起的      → --root 显式给定
-//   2. 全局注册后由 herdr 里的会话拉起 → 查 registry 认自己；不是 worker 就是编排者
-//   3. 裸终端里 CLI 直连的会话拉起    → 必然是编排者（worker 都在 herdr 里）
+// 【编排身份绑项目，不绑会话】。编排者恒等于「坐在这个项目工作区里的那个会话」，
+// 而会话是会重启、会被 compact、会被关掉的。早先 root 取 harness session id，
+// 于是 GG 一重启会话 root 就变了，上一轮派出去的 worker 全部落在射程外——
+// list_workers 返回空数组，同时 live_across_all_orchestrations 显示 1，
+// 看得见却碰不到，那一个 worker 就成了没人能收的孤儿。
+//
+// 绑到 repo 之后，会话重启自然接手上一轮的 worker。同一个项目同时开两个会话
+// 也会共享同一次编排——那是对的：它们在同一个项目里干活，本来就该互相看得见，
+// 并发闸也该一起算。
 //
 // 【为什么要认出自己是不是 worker】：全局注册之后 worker 也会加载这些工具，
 // 不拦的话它能继续 spawn，一层套一层没有底。认出来就不给它 spawn_worker，
@@ -64,21 +69,27 @@ function resolveIdentity() {
       return { root: me.root, role: "worker", paneId, workerSlug: me.slug, workerTitle: me.title };
     }
     if (me?.root) return { root: me.root, role: "orchestrator", paneId };
-
-    // 在 herdr 里但不是 herdgent 起的会话——用户自己开的，它就是编排者。
-    // root 取 harness session id：那是唯一不随重启变化的主键。
-    const r = tryHerdr(["agent", "get", paneId]);
-    const sid = r.ok ? r.result.agent?.agent_session?.value : null;
-    return { root: sid ? `orc:${sid}` : `orc:pane:${paneId}`, role: "orchestrator", paneId };
   }
 
-  // 不在 herdr 里。一次性 root：会话没了就结束，下次是新的一轮，
-  // 上一轮遗留的 worker 由孤儿扫描列出来问人。
-  return {
-    root: `orc:cli:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
-    role: "orchestrator",
-    paneId: null,
-  };
+  // 不是 worker，就是编排者——不管在不在 herdr 里。CLI 直连和 herdr 里的会话
+  // 拿到同一个 root：GG 说过他会在不关注过程时直接用 CLI，那时仍是同一个项目
+  // 的同一摊活，没理由分家。
+  return { root: `orc:repo:${projectKey()}`, role: "orchestrator", paneId };
+}
+
+// 项目的稳定标识。用 git 主仓库而不是 cwd：worker 跑在 worktree 里，
+// 人也可能在 worktree 里开会话，那些都该算同一个项目。
+// --git-common-dir 在 worktree 里返回【主仓库】的 .git，这正是要的东西。
+function projectKey() {
+  const cwd = flag("repo", process.cwd());
+  const r = spawnSync("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    encoding: "utf8",
+  });
+  if (!r.error && r.status === 0) {
+    const gitDir = (r.stdout || "").trim();
+    if (gitDir) return gitDir.replace(/\/\.git\/?$/, "") || gitDir;
+  }
+  return cwd; // 不在 git 仓库里也能编排，退回目录本身
 }
 
 const IDENTITY = resolveIdentity();
@@ -1183,12 +1194,17 @@ try {
 
 // worker 拿不到派活类工具：认得出自己是 worker，就把这些摘掉，
 // 免得它在工具列表里看到 spawn_worker 而动念递归。
+// worker 看不到这些。run_plan / run_preset 也在里面：它们内部会 assertCanSpawn
+// 而被拒，但【列在工具表里】本身就是误导——worker 会照着排一个计划再撞墙，
+// 那一轮的思考全白费。不给看比给看再拒绝干净。
 const WORKER_HIDDEN = new Set([
   "spawn_worker",
   "cancel_worker",
   "set_worker_limit",
   "send_to_worker",
   "wait_for_worker",
+  "run_plan",
+  "run_preset",
 ]);
 const EXPOSED = IDENTITY.role === "worker" ? TOOLS.filter((t) => !WORKER_HIDDEN.has(t.name)) : TOOLS;
 

@@ -114,25 +114,11 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 herdgent 只需要能连上 herdr socket，而 **worker 永远跑在 herdr 的真终端里**，
 随时能点进去看、能直接打字接管。
 
-### 另一条路：起一个干净的编排者会话
-
-不想污染当前会话时（比如一批互不相关的任务），用 plugin action。
-herdr **没有命令面板**，action 只能经 CLI、快捷键或 Ctrl+click 匹配的 URL 触发：
-
-```sh
-# 在目标仓库的 workspace 里跑；当前活跃 workspace 决定编排哪个仓库
-herdr plugin action invoke orchestrate --plugin herdgent
-```
-
-想绑快捷键就自己往 `~/.config/herdr/config.toml` 加——那是用户配置，插件不代写：
-
-```toml
-[[keys.command]]
-key = "prefix+alt+o"
-type = "plugin_action"
-command = "herdgent.orchestrate"
-description = "start herdgent orchestrator"
-```
+> **曾经有过一个 `orchestrate` plugin action**，会另起一个独立 workspace 专门跑编排者。
+> 它存在的唯一理由是「MCP 只能在会话启动时注入，已经跑着的会话加不了工具」——
+> 而 herdgent 装成**全局 MCP** 之后这个理由就没了：任何会话开起来就带着编排工具。
+> 留着它只会在侧栏凭空多出一个跟 worktree 平级、谁也说不清算什么的 workspace。
+> 0.7.0 已删除。编排者就是你正在说话的这个会话。
 
 ### 两种编排：rex 与 fox
 
@@ -142,7 +128,10 @@ description = "start herdgent orchestrator"
 | **fox** | 不新建 space，在当前 workspace 加 tab | **只读研究**。tab 显示 `fox · <题目> · <环节>` |
 
 一次编排就是一个容器：**环节是 tab，环节内并行的 worker 是 pane**。
-tab 名带状态后缀（`⋯` 跑着 / `✓` 完成 / `⚠` 有人卡住 / `✗` 失败），扫一眼侧栏就知道进度。
+tab 名带状态后缀（`☐` 还没开始 / `⋯` 跑着 / `✓` 完成 / `⚠` 有人卡住 / `✗` 失败），
+扫一眼侧栏就知道进度。**整个计划的 tab 一开跑就建齐**，所以第一秒就看得出一共几步、
+后面还有什么；序号跨多次 `run_plan` 连续，同一个容器里不会出现两个「1 xxx」。
+状态是**可回退的**：`send_to_worker` 派了返工，那个环节的 `✓` 会自动退回 `⋯`。
 
 两种模式各有一份 playbook（`skills/rex/`、`skills/fox/`），编排者用
 `orchestration_guide(mode: "rex")` 读。用户可在 `config/modes.json` 覆盖或新增自己的模式。
@@ -187,13 +176,12 @@ run_preset(preset, inputs)          跑
 
 ## 现状（0.7.0）
 
-**跨厂商互审端到端跑通并实测**：`orchestrate` 起编排者 → 它派出 claude worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派 **codex** worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。
+**跨厂商互审端到端跑通并实测**：编排者派出 worker 在自己的 git worktree 里实现并提交 → 取出 diff → 派**另一家厂商**的 worker 独立评审 → 判定 PASS（逐条核对了验收标准）→ 主仓库零污染。头一次真跑就抓到了实现方漏掉的缺陷（`import.meta.dirname` 需要 Node 20.11，却在版本检查之前求值，于是那句提示永远打不出来）。
 
 这是 herdgent 存在的理由：单家编排 Claude Code 自己的 dynamic workflow 就够了。
 
 | | |
 |---|---|
-| `bin/orchestrate.mjs` | 起 orchestrator 会话并注入编排工具（plugin action） |
 | `bin/mcp-server.mjs` | 编排工具通道，orchestrator 的 stdio 子进程 |
 | `bin/session-start.mjs` | 起一个独立的受管会话（plugin action） |
 | `bin/reconcile.mjs` | `[[startup]]` 对账 |

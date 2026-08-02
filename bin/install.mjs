@@ -216,7 +216,7 @@ if (!existsSync(readme)) {
       "",
       "工作流是 **prompt 不是代码**——写「谁评审谁、什么算验收、失败了怎么办」，",
       "而不是写怎么调工具（那些在工具描述里）。可以从内置的",
-      "`../../skills/orchestrate/SKILL.md` 抄一份改。",
+      "`../../skills/rex/SKILL.md` 或 `fox/SKILL.md` 抄一份改。",
       "",
       "`install` 不会覆盖这个目录。",
       "",
