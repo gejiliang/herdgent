@@ -183,7 +183,7 @@ run_preset(preset, inputs)          跑
 | | |
 |---|---|
 | `bin/mcp-server.mjs` | 编排工具通道，orchestrator 的 stdio 子进程 |
-| `bin/session-start.mjs` | 起一个独立的受管会话（plugin action） |
+| `bin/session-start.mjs` | 起一个独立的受管会话（plugin action）；也走 profile，用哪个由插件配置 `config.json` 的 `session_start_profile` 决定，默认 `impl-gpt` |
 | `bin/reconcile.mjs` | `[[startup]]` 对账 |
 | `bin/hook-claude.mjs` | Claude Code SessionStart 钩子 |
 | `lib/worker.mjs` | worker 生命周期：起、命名、隔离、回收 |
