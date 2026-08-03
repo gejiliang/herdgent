@@ -106,6 +106,8 @@ for (const taskId of taskIds) {
       results.push({
         task: taskId, tier: t.tier, harness, wire: r.wire, rep,
         ok: r.ok, exitCode: r.exitCode, timedOut: r.timedOut, ms: r.ms,
+        // 统计时先按 infraFailure 过滤，见 review/run.mjs 同处注释
+        attempt: r.attempt ?? 0, infraFailure: r.infraFailure ?? false,
         usage: r.usage ?? null, stdoutBytes: r.stdoutBytes ?? null,
         solved, regressed,
         specPassed: spec.passed, specFailed: spec.failed, specTotal: spec.total,
@@ -120,7 +122,8 @@ for (const taskId of taskIds) {
         `${String((r.ms / 1000).toFixed(0)).padStart(4)}s  ` +
           `验收 ${spec.passed}/${spec.total}  基础 ${smoke.passed}/${smoke.total}  ` +
           `动了${String(changed).padStart(2)}处  ` +
-          `${solved ? "完成" : "未完成"}${regressed ? "  ⚠有回归" : ""}${r.timedOut ? "  ⚠超时" : ""}`,
+          `${solved ? "完成" : "未完成"}${regressed ? "  ⚠有回归" : ""}${r.timedOut ? "  ⚠超时" : ""}` +
+          `${r.attempt ? `  (重试${r.attempt}次)` : ""}${r.infraFailure ? "  ⚠网关失败·不计分" : ""}`,
       );
       await scrub(work);
       await writeFile(outFile, JSON.stringify(results, null, 2));

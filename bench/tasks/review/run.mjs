@@ -39,7 +39,7 @@ function arg(name, fallback) {
 }
 
 const answers = JSON.parse(await readFile(join(HERE, "answers.json"), "utf8"));
-const taskIds = arg("task") ? [arg("task")] : Object.keys(answers);
+const taskIds = arg("task") ? arg("task").split(",") : Object.keys(answers);
 const harnesses = arg("harness") ? arg("harness").split(",") : HARNESS_IDS;
 const reps = Number(arg("reps", "3"));
 
@@ -97,6 +97,10 @@ for (const taskId of taskIds) {
       results.push({
         task: taskId, tier: answer.tier, harness, wire: r.wire, rep,
         ok: r.ok, exitCode: r.exitCode, timedOut: r.timedOut, ms: r.ms,
+        // 【统计时必须先按 infraFailure 过滤】：重试完还是网络失败的那次，
+        // 记进能力分就是把一次网关抖动算成这家不行
+        attempt: r.attempt ?? 0, infraFailure: r.infraFailure ?? false,
+        stdoutBytes: r.stdoutBytes ?? null,
         usage: r.usage ?? null, filesTouched: touched,
         ...s,
         // 【不截断】。改了解析规则要能就地重判分，截断过的输出重判就是错的。
@@ -111,7 +115,8 @@ for (const taskId of taskIds) {
           `报${String(s.total_generated).padStart(2)}条  ` +
           `准${pct(s.line_precision)}  召${pct(s.line_recall)}  噪${pct(s.noise_rate)}  ` +
           `${s.formatStrict ? "格式✓" : s.parseOk ? "格式松" : "解析不出"}` +
-          `${touched ? `  ⚠动了${touched}处文件` : ""}${r.timedOut ? "  ⚠超时" : ""}`,
+          `${touched ? `  ⚠动了${touched}处文件` : ""}${r.timedOut ? "  ⚠超时" : ""}` +
+          `${r.attempt ? `  (重试${r.attempt}次)` : ""}${r.infraFailure ? "  ⚠网关失败·不计分" : ""}`,
       );
       await scrub(work);
       await writeFile(outFile, JSON.stringify(results, null, 2));

@@ -16,19 +16,47 @@ const WRAPPER = join(BENCH_DIR, "bin", "with-key.sh");
 const HOMES = join(BENCH_DIR, "homes");
 export const RUNS_DIR = join(BENCH_DIR, ".runs");
 
-export async function runOne({
+// 基础设施失败的特征串。【必须和「能力失败」分开】——
+// 实测 opencode 跑到一半吃了个 `unknown certificate verification error`，
+// 8 秒退出、零输出。不重试的话，这一次网络抖动就会被记成「它评审能力差」，
+// 而它上一次在同一道题上是正常出结果的。
+const INFRA_PATTERNS =
+  /certificate|econnreset|etimedout|enotfound|eai_again|socket hang up|connection (error|closed|reset)|rate.?limit|429|50[234]|bad gateway|service unavailable|gateway time-?out/i;
+
+export function looksLikeInfraFailure(res, parsedText) {
+  // 只在【什么也没产出】时才认；有输出就说明它真跑了，那是能力问题不是网络问题
+  if (parsedText && parsedText.trim()) return false;
+  return INFRA_PATTERNS.test(res.stderr ?? "");
+}
+
+export async function runOne(opts) {
+  const { retries = 2 } = opts;
+  let last = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    last = await runOnce({ ...opts, attempt });
+    if (!last.infraFailure) break;
+    if (attempt < retries) {
+      // 退避：证书/限流类问题立刻重试多半还是撞同一堵墙
+      await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+    }
+  }
+  return last;
+}
+
+async function runOnce({
   harness,
   prompt,
   cwd,
   timeoutMs = 300_000,
   tag = "run",
   keepHome = false,
+  attempt = 0,
 }) {
   const adapter = ADAPTERS[harness];
   if (!adapter) throw new Error(`unknown harness: ${harness}`);
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const runDir = join(RUNS_DIR, `${stamp}-${harness}-${tag}`);
+  const runDir = join(RUNS_DIR, `${stamp}-${harness}-${tag}${attempt ? `-retry${attempt}` : ""}`);
   const home = join(runDir, "home");
   await mkdir(runDir, { recursive: true });
   await cp(join(HOMES, harness), home, { recursive: true });
@@ -77,6 +105,9 @@ export async function runOne({
     harness,
     wire: adapter.wire,
     tag,
+    attempt,
+    // 网络/网关问题导致的空跑。调用方据此重试，并且【不能当成能力分记进结果】。
+    infraFailure: looksLikeInfraFailure(res, parsed.text),
     ok: res.code === 0 && !res.timedOut,
     exitCode: res.code,
     timedOut: res.timedOut,
