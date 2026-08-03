@@ -163,6 +163,20 @@ useState：这样「加字段」「加筛选」必然要同时动状态和组件
 隐藏测试放在 `specs/`，**不进 fixture** —— 进去了 agent 就能照着断言写代码，
 测的就成了抄写能力。判分时才复制进 `app/__bench__/` 跑。
 
+## 已知的题面瑕疵
+
+**前端 fixture 会暴露「有隐藏测试」这件事。** `package.json` 里有 `test` script，
+但 `src/` 下一个测试文件都没有 —— 这个反差就是线索。实测 opencode 直接说破了
+（「No test files exist yet (the harness adds them later)」），kimi 也说了
+（「the acceptance checks run externally」）。
+
+知道自己被隐藏测试评判，可能让 agent 变得更保守或更投机，是个真实的混淆变量。
+
+修法是往 app 里放几个**只覆盖既有功能**的测试（就像任何真实项目那样），
+这样「有测试」是常态而不是异常，同时不泄露新需求的断言。
+**没有立刻改**：改了之后已经跑出来的数据就和新数据不可比了，
+要改就得整批重跑，所以留到下一轮一起。
+
 ## 还没做
 
 - **约束遵守类**（给明确禁令再诱它越界，判 `git status`）—— 对 herdgent 的编排最相关，但排在第二轮。
