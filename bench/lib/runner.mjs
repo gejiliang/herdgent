@@ -5,8 +5,8 @@
 // 复制一份模板的成本是毫秒级，换来的是「n 次运行互相独立」这个前提成立。
 
 import { spawn } from "node:child_process";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
+import { createWriteStream, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ADAPTERS } from "../adapters/index.mjs";
@@ -51,6 +51,8 @@ export async function runOne({
     cwd,
     env,
     timeoutMs,
+    stdoutFile: join(runDir, "stdout.txt"),
+    stderrFile: join(runDir, "stderr.txt"),
   });
   const ms = Date.now() - started;
 
@@ -59,10 +61,8 @@ export async function runOne({
     lastMessage = await readFile(lastMessageFile, "utf8").catch(() => null);
   }
 
-  // 【原始输出必须落盘】。解析规则会随 harness 升级而改，输出格式变了就得重解析 ——
-  // 如果只留解析后的结果，每次改解析器都要重跑一遍全部实验，那是几十次真实调用的钱。
-  await writeFile(join(runDir, "stdout.txt"), res.stdout);
-  await writeFile(join(runDir, "stderr.txt"), res.stderr);
+  // 原始输出已由 spawnCapture 流式写进 runDir —— 解析规则会随 harness 升级而改，
+  // 只留解析后的结果的话，每次改解析器都得重跑全部实验，那是几十次真实调用的钱。
 
   let parsed = { text: "", usage: null };
   try {
@@ -71,7 +71,7 @@ export async function runOne({
     parsed = { text: res.stdout.trim(), usage: null, parseError: String(e) };
   }
 
-  if (!keepHome) await rm(home, { recursive: true, force: true });
+  if (!keepHome) await hardRemove(home);
 
   return {
     harness,
@@ -81,6 +81,10 @@ export async function runOne({
     exitCode: res.code,
     timedOut: res.timedOut,
     ms,
+    // 输出总字节数本身就是个指标：同一任务下各家吐出的量差着数量级，
+    // 而这直接决定编排方要花多少代价去解析 worker 的输出。
+    stdoutBytes: res.stdoutBytes,
+    stdoutTruncated: res.stdoutTruncated,
     runDir,
     stdout: res.stdout,
     stderr: res.stderr,
@@ -88,11 +92,65 @@ export async function runOne({
   };
 }
 
-function spawnCapture(cmd, args, { cwd, env, timeoutMs }) {
+/**
+ * 删除受测进程留下的目录树。
+ *
+ * 【不能只用 fs.rm】：受测 harness 会在假 HOME 里跑构建工具，而 Go module cache
+ * （home/go/pkg/mod/…）是【只读】的，Node 的 rm 直接 EACCES 崩掉，
+ * 整个批次就死在清理这一步。先把写权限加回来再删。
+ */
+async function hardRemove(dir) {
+  try {
+    await rm(dir, { recursive: true, force: true });
+    return;
+  } catch {
+    /* 多半是只读的依赖缓存，下面强来 */
+  }
+  await new Promise((resolve) => {
+    const p = spawn("sh", ["-c", `chmod -R u+w ${JSON.stringify(dir)} 2>/dev/null; rm -rf ${JSON.stringify(dir)}`], {
+      stdio: "ignore",
+    });
+    p.on("close", resolve);
+    p.on("error", resolve);
+  });
+}
+
+// 内存里为每条流保留的尾部上限。
+//
+// 【必须有上限】（踩过）：把 stdout 一路 += 成字符串，跑评审任务时 pi 直接把 V8 的
+// 字符串长度上限撑爆 —— `RangeError: Invalid string length`，整批在它那里崩掉，
+// 前面几家的结果全部白跑。它的 --mode json 事件流会把工具读到的文件内容也吐出来。
+//
+// 取尾部而不是头部：各家的最终答案都在输出末尾。全量另有一份流式写到 runDir，
+// 想重新解析随时能读。
+const TAIL_BYTES = 16 * 1024 * 1024;
+
+function tailCollector() {
+  const chunks = [];
+  let bytes = 0;
+  return {
+    push(buf) {
+      chunks.push(buf);
+      bytes += buf.length;
+      while (bytes > TAIL_BYTES && chunks.length > 1) bytes -= chunks.shift().length;
+    },
+    text() {
+      return Buffer.concat(chunks).toString("utf8");
+    },
+    get bytes() {
+      return bytes;
+    },
+  };
+}
+
+function spawnCapture(cmd, args, { cwd, env, timeoutMs, stdoutFile, stderrFile }) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
+    const out = tailCollector();
+    const err = tailCollector();
+    const outFile = stdoutFile ? createWriteStream(stdoutFile) : null;
+    const errFile = stderrFile ? createWriteStream(stderrFile) : null;
+    let outTotal = 0;
     let timedOut = false;
 
     const timer = setTimeout(() => {
@@ -103,15 +161,29 @@ function spawnCapture(cmd, args, { cwd, env, timeoutMs }) {
       setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
     }, timeoutMs);
 
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      resolve({ code: -1, stdout, stderr: stderr + `\nspawn error: ${e}`, timedOut });
+    child.stdout.on("data", (d) => {
+      outTotal += d.length;
+      out.push(d);
+      outFile?.write(d);
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code, stdout, stderr, timedOut });
+    child.stderr.on("data", (d) => {
+      err.push(d);
+      errFile?.write(d);
     });
+    const finish = (code, extraErr = "") => {
+      clearTimeout(timer);
+      outFile?.end();
+      errFile?.end();
+      resolve({
+        code,
+        stdout: out.text(),
+        stderr: err.text() + extraErr,
+        timedOut,
+        stdoutBytes: outTotal,
+        stdoutTruncated: outTotal > out.bytes,
+      });
+    };
+    child.on("error", (e) => finish(-1, `\nspawn error: ${e}`));
+    child.on("close", (code) => finish(code));
   });
 }

@@ -24,6 +24,12 @@ import { join } from "node:path";
 export const MODEL = "deepseek-v4-flash";
 export const GATEWAY = "https://newapi.gejiliang.com";
 
+// 统一的输出上限。这个值不是随手定的：网关的 Anthropic 兼容层会把 thinking
+// 也算进 max_tokens，4096 时思考就能把预算吃光导致【没有最终答案】（实测
+// stop_reason=max_tokens、content 里只有 thinking 块）。16384 实测正常，
+// 留一倍余量取 32768，让长输出任务也不会撞顶。
+export const MAX_OUTPUT_TOKENS = 32768;
+
 // 网关同时挂着 `deepseek-v4-flash` 与 `ark-deepseek-v4-flash`（火山方舟入口）。
 // 两个是不同上游，限流与工具调用支持都可能不同 —— 实验必须固定一个，别混用。
 
@@ -43,6 +49,11 @@ export const ADAPTERS = {
     // ANTHROPIC_AUTH_TOKEN 由 with-key.sh 注入 —— 它才是唯一持有密钥的地方。
     env: () => ({
       ANTHROPIC_BASE_URL: GATEWAY,
+      // 【必须显式设大，否则 CC 会交白卷】。实测网关的 Anthropic 兼容层在
+      // max_tokens=4096 时，模型的 thinking 就把预算吃光：stop_reason=max_tokens，
+      // 返回里只有 thinking 块、text 是空字符串。调到 16384 才正常出答案。
+      // CC 自己的默认值够大所以实跑没踩到，但长输出任务上这是个静默的白卷来源。
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(MAX_OUTPUT_TOKENS),
       // 关掉一切会额外发请求或写状态的东西，减少噪声与串台。
       DISABLE_TELEMETRY: "1",
       DISABLE_AUTOUPDATER: "1",

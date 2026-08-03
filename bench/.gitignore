@@ -1,2 +1,7 @@
 .runs/
 results/*.json
+tasks/review/.aacr/
+tasks/review/fixtures/
+tasks/review/answers.json
+tasks/frontend/fixtures/
+tasks/frontend/app/node_modules/
