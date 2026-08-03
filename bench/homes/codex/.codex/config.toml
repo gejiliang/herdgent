@@ -1,0 +1,12 @@
+# 评测用的独立 Codex 配置。CODEX_HOME 指到这里，GG 的 ~/.codex 一个字节都不碰。
+model = "deepseek-v4-flash"
+model_provider = "quota-proxy"
+
+# 网关实测支持 /v1/responses（HTTP 200，返回带 reasoning 块），所以沿用 responses wire。
+# 这是【记录变量】：Codex 走的是网关的 responses 转换层，与 opencode/pi/kimi 的
+# 原生 chat/completions 不是同一条路，转换损耗会计到 Codex 头上。结论里必须标明。
+[model_providers.quota-proxy]
+name = "Quota Proxy"
+base_url = "https://newapi.gejiliang.com/v1"
+wire_api = "responses"
+env_key = "NEWAPI_API_KEY"

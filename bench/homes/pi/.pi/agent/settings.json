@@ -1,0 +1,9 @@
+{
+  "defaultProvider": "quota-proxy",
+  "defaultModel": "deepseek-v4-flash",
+  "enabledModels": ["quota-proxy/deepseek-v4-flash"],
+  "packages": [],
+  "defaultProjectTrust": "always",
+  "defaultThinkingLevel": "high",
+  "lastChangelogVersion": "99.0.0"
+}
