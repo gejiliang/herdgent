@@ -186,6 +186,15 @@ console.log(`<title>harness-bench 结果</title>
     padding:.1rem .34rem;border-radius:2px;margin-right:.3rem;white-space:nowrap}
   .flag.dim{color:var(--ink-dim)}
   .none{color:var(--ink-dim);font-size:.9rem;font-style:italic;padding:.4rem 0}
+  .findings{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem}
+  .fh{font-size:1.15rem;border-bottom:1px solid var(--line-strong);padding-bottom:.5rem;margin:0 0 .3rem}
+  .f{background:var(--surface);border:1px solid var(--line);border-radius:2px;padding:.9rem 1.05rem;
+    display:grid;grid-template-columns:auto 1fr;gap:.9rem;align-items:start;font-size:.93rem}
+  .ftag{font-family:var(--mono);font-size:.62rem;letter-spacing:.09em;text-transform:uppercase;
+    padding:.16rem .42rem;border-radius:2px;white-space:nowrap;background:var(--surface-2);color:var(--accent);margin-top:.15rem}
+  .ftag.bad{color:var(--bad)}
+  .ftag.warn{color:var(--barslow)}
+  .f code{font-family:var(--mono);font-size:.87em;background:var(--surface-2);padding:.08em .34em;border-radius:2px}
   footer{border-top:1px solid var(--line);padding-top:.9rem;font-family:var(--mono);font-size:.78rem;color:var(--ink-dim)}
 </style>
 <div class="wrap">
@@ -204,6 +213,61 @@ console.log(`<title>harness-bench 结果</title>
   </div>
 
   ${sections}
+
+  <section class="findings">
+    <h2 class="fh">读出来的东西</h2>
+
+    <div class="f">
+      <span class="ftag bad">设计失误</span>
+      <div>
+        <b>前端三道题全员满分，等于白设计。</b>
+        15 个格子全部完成、零回归、零虚报，五家分不出高下。
+        对 <code>deepseek-v4-flash</code> 来说，「在小型 React 应用里改几个文件让测试变绿」太轻松了。
+        残留的唯一信号是耗时（19s ↔ 52s）和改动整洁度（难题上 opencode/claude 只动 1 处，其余动 2 处）。
+        下一轮要换成更大的代码库或更微妙的需求，而不是 CRUD 小改动。
+      </div>
+    </div>
+
+    <div class="f">
+      <span class="ftag">主要发现</span>
+      <div>
+        <b>差异全在评审侧，而且是多维度的，不是一条排名。</b>
+        速度 189s ↔ 900s（近 5 倍）、精确率 33% ↔ 100%、召回 7% ↔ 40%，
+        而且<b>守不守输出契约是二值分裂的</b>：codex 与 opencode 每次都规规矩矩打一个 JSON 数组，
+        claude / pi / kimi 从不 —— 内容对，但要靠宽松解析才捞得出来。
+      </div>
+    </div>
+
+    <div class="f">
+      <span class="ftag">主要发现</span>
+      <div>
+        <b>「写代码」和「读代码找问题」是两种能力，同一个 harness 可以一边强一边弱。</b>
+        claude 在前端难题上 52 秒、只动 1 处文件就改对了根因（题目明确禁止在显示层打补丁）；
+        同一个 claude 在评审难题上 15 分钟跑满、零输出。
+        评审要把大量上下文读进去再精确定位，和改几个文件让测试变绿吃的完全不是一回事。
+      </div>
+    </div>
+
+    <div class="f">
+      <span class="ftag">主要发现</span>
+      <div>
+        <b>评审难题上出现清晰的「广撒网 vs 精准」权衡。</b>
+        opencode 报 5 条捞到最多（召回 29%）；codex 报 3 条 100% 全对但只捞到 14%；
+        pi 报 4 条却踩了个诱饵（噪声 25%，全场唯一）；claude 直接撑不住。
+        这不是谁强谁弱，是四种不同的失败姿态 —— 派谁去做评审，取决于你更怕漏还是更怕返工。
+      </div>
+    </div>
+
+    <div class="f">
+      <span class="ftag warn">别过度解读</span>
+      <div>
+        <b>30 格里 26 格只有 1 次运行。</b>
+        实测同配置的运行间方差能到 2 倍（codex 在评审基线题上跑出过精确 67% 与 33%）。
+        上面这些形状目前只能读作<b>倾向</b>，不是排名。
+        要出可信排名得每格 n≥3，也就是 90 次运行的量级。
+      </div>
+    </div>
+  </section>
 
   <footer>判分主指标零 LLM：评审比对文件路径 + 行号区间；前端跑隐藏测试。</footer>
 </div>`);
