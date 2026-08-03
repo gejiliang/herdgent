@@ -1,6 +1,7 @@
 # Herdgent — Agent 指令
 
-> 只写「在这个目录里干活才需要的东西」，对所有 harness 通用。全局配置 `~/.agents/AGENTS.md` 已注入，不复述。
+> **本文件是本项目章程的唯一真源**，`CLAUDE.md` 只是指向它的软链——改章程改本文件。
+> 只写「在这个目录里干活才需要的东西」；harness 独有的落点写进末尾对应小节。全局配置 `~/.agents/AGENTS.md` 已注入，不复述。
 > 项目是什么、现状如何见 [`README.md`](README.md)；实测踩过的坑见 [`docs/findings-2026-07-31.md`](docs/findings-2026-07-31.md)。
 
 ## 不可逆约束
@@ -87,3 +88,8 @@ herdgent 的产品形态就是跨 harness 编排（见 README），所以「不�
 - Node ESM（`.mjs`），**零 npm 依赖**。理由是 `herdr plugin link` 不跑 `[[build]]`，零依赖才能改完下次调用即生效；不是洁癖。真要引入依赖，先算清楚它值不值一个 build 步骤。
 - `lib/herdr.mjs` 是唯一与 herdr 对话的地方；错误分三类且不压平：`spawn_failed`（herdr 没跑）/ `bad_output`（协议变了）/ herdr 自己的错误码。
 - 钩子进程（`bin/hook-*.mjs`）**绝不能抛异常**——它跑在 harness 启动路径上，抛了会拖垮会话。失败要 `auditLog` 留痕，不能静默。
+
+## 仅 Claude Code 适用
+
+- 本项目的控制面钩子（`bin/hook-claude.mjs`）经 `--settings` 注入被管理的会话，**与用户自己的 `~/.claude/settings.json` 是合并语义**（实测，见 [`docs/findings-2026-07-31.md`](docs/findings-2026-07-31.md)）。改钩子注入逻辑前先确认这条仍成立。
+- 调试受管会话时注意：被起的 claude 会**继承起它那个进程的环境变量**。用干净 env 起 runtime，否则会把 `CLAUDE_CODE_*` 一路传进去（症状：状态栏出现「Transcript saving is off — inherited CLAUDE_CODE_…」、会话标题串台）。
