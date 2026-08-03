@@ -94,6 +94,8 @@ codex 读 `~/.codex/AGENTS.md`、kimi 读 `~/.kimi-code/AGENTS.md`……
 | 判分器把标准答案判成 12/14 | 用 `findIndex` 取第一个匹配的标注，位置重叠时前一条把两次匹配都吃掉，后一条永远无人认领 | 一对一贪心配对：优先认领没被占过的标注 |
 | 断言全绿但 bug 明明在 | `toHaveTextContent` 是**子串匹配**，`"1290.50"` 能通过 `"90.50"` 的断言 | 金额一律用 `.textContent).toBe(...)` 精确比较 |
 | `import` 一下就把 fixture 重建了 | `build.mjs` 顶层无条件 `await build()`，而 `run.mjs` 要 import 它的 `TASKS` | 只在 `process.argv[1]` 是自己时才 build |
+| 一家 8 秒退出、零输出，看起来像「能力极差」 | 网关的 TLS 抖动（`unknown certificate verification error`），跟能力无关 | 自动重试；判据要求 stderr 命中网络错误**且**完全没有产出。结果里 `infraFailure` 标记，统计时先过滤 |
+| 长批次跑到一半被杀 | **后台任务约 20–25 分钟就会被环境中止**（实测连续三次） | 每批控制在 15 分钟内。难题单次接近 15 分钟，所以**一次只能跑一个**。结果每次运行后就落盘，中止不丢数据 |
 
 ---
 
