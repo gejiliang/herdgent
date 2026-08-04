@@ -10,6 +10,7 @@ import { createWriteStream, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ADAPTERS } from "../adapters/index.mjs";
+import { startMeter } from "./meter.mjs";
 
 const BENCH_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 const WRAPPER = join(BENCH_DIR, "bin", "with-key.sh");
@@ -51,6 +52,7 @@ async function runOnce({
   tag = "run",
   keepHome = false,
   attempt = 0,
+  meterEnabled = true,
 }) {
   const adapter = ADAPTERS[harness];
   if (!adapter) throw new Error(`unknown harness: ${harness}`);
@@ -64,6 +66,11 @@ async function runOnce({
   const lastMessageFile = join(runDir, "last-message.txt");
   const args = adapter.args({ prompt, lastMessageFile, home });
 
+  // 本地计量代理：五家的请求全从这里过，才有可能用同一把尺子数 token。
+  // 各家自报的口径根本对不上（两家不报，报的三家缓存算法各不相同），
+  // 而网关的用量接口要 admin 凭证、且网关归 homelab 管，不能为评测去动。
+  const meter = meterEnabled ? await startMeter({ logFile: join(runDir, "meter.jsonl"), label: `${harness}/${tag}` }) : null;
+
   const env = {
     // 【白名单，不是继承】。继承当前进程的 env 会把 CLAUDE_CODE_* 一路带进受测会话
     // （herdgent 项目文档里记着这个坑：症状是 transcript 被关掉、会话标题串台）。
@@ -71,6 +78,7 @@ async function runOnce({
     TERM: "dumb",
     LANG: process.env.LANG ?? "en_US.UTF-8",
     BENCH_HOME: home,
+    ...(meter ? { BENCH_BASE_URL: meter.baseUrl } : {}),
     ...adapter.env({ home }),
   };
 
@@ -83,6 +91,8 @@ async function runOnce({
     stderrFile: join(runDir, "stderr.txt"),
   });
   const ms = Date.now() - started;
+  const tokens = meter ? { ...meter.totals } : null;
+  if (meter) await meter.stop();
 
   let lastMessage = null;
   if (existsSync(lastMessageFile)) {
@@ -116,6 +126,8 @@ async function runOnce({
     // 而这直接决定编排方要花多少代价去解析 worker 的输出。
     stdoutBytes: res.stdoutBytes,
     stdoutTruncated: res.stdoutTruncated,
+    // 【唯一可跨家比较的 token 数】，来自本地代理而非各家自报
+    tokens,
     runDir,
     stdout: res.stdout,
     stderr: res.stderr,

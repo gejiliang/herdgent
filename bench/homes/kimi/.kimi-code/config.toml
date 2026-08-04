@@ -8,7 +8,7 @@ default_model = "qp/deepseek-v4-flash"
 
 [providers.qp]
 type = "openai"
-base_url = "https://newapi.gejiliang.com/v1"
+base_url = "__BASE_URL__/v1"
 api_key = "__NEWAPI_KEY__"
 
 [models."qp/deepseek-v4-flash"]

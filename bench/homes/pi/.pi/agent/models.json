@@ -2,7 +2,7 @@
   "providers": {
     "quota-proxy": {
       "name": "Quota Proxy (newapi.gejiliang.com)",
-      "baseUrl": "https://newapi.gejiliang.com/v1",
+      "baseUrl": "__BASE_URL__/v1",
       "api": "openai-completions",
       "apiKey": "__NEWAPI_KEY__",
       "headers": {

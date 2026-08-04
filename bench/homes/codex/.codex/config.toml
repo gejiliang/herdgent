@@ -7,6 +7,6 @@ model_provider = "quota-proxy"
 # 原生 chat/completions 不是同一条路，转换损耗会计到 Codex 头上。结论里必须标明。
 [model_providers.quota-proxy]
 name = "Quota Proxy"
-base_url = "https://newapi.gejiliang.com/v1"
+base_url = "__BASE_URL__/v1"
 wire_api = "responses"
 env_key = "NEWAPI_API_KEY"

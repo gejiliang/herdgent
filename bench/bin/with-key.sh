@@ -32,12 +32,21 @@ grep -rlF '__NEWAPI_KEY__' "$BENCH_HOME" 2>/dev/null | while IFS= read -r f; do
   perl -pi -e 's/__NEWAPI_KEY__/$ENV{NEWAPI_API_KEY}/g' "$f" || exit 66
 done
 
+# 网关地址同样是占位符：跑评测时它指向本地计量代理，五家的请求都从那里过，
+# 才有可能用同一把尺子数 token（各家自报的口径根本对不上，见 lib/meter.mjs）。
+# 没设 BENCH_BASE_URL 时回落到网关本身，方便单独调试某一家。
+: ${BENCH_BASE_URL:=https://newapi.gejiliang.com}
+grep -rlF '__BASE_URL__' "$BENCH_HOME" 2>/dev/null | while IFS= read -r f; do
+  perl -pi -e 's{__BASE_URL__}{$ENV{BENCH_BASE_URL}}g' "$f" || exit 67
+done
+
 # 1>&3 把子进程的 stdout 接回真正的 stdout；3>&- 不让 fd 3 泄漏进受测进程。
 # ANTHROPIC_AUTH_TOKEN 是 Claude Code 认的密钥变量。在这里统一注入，
 # adapter 层就不必碰密钥；其余 harness 不认这个变量，设了也无害。
 exec env \
   HOME="$BENCH_HOME" \
   ANTHROPIC_AUTH_TOKEN="$NEWAPI_API_KEY" \
+  ANTHROPIC_BASE_URL="$BENCH_BASE_URL" \
   XDG_CONFIG_HOME="$BENCH_HOME/.config" \
   XDG_DATA_HOME="$BENCH_HOME/.local/share" \
   XDG_STATE_HOME="$BENCH_HOME/.local/state" \

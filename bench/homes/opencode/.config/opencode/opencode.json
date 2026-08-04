@@ -6,7 +6,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Newapi (quota-proxy)",
       "options": {
-        "baseURL": "https://newapi.gejiliang.com/v1",
+        "baseURL": "__BASE_URL__/v1",
         "apiKey": "{env:NEWAPI_API_KEY}"
       },
       "models": {

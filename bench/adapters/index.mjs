@@ -44,11 +44,10 @@ export const ADAPTERS = {
       "--output-format", "json",
       "--permission-mode", "bypassPermissions",
     ],
-    // CC 认 ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN，密钥不落盘。
+    // ANTHROPIC_BASE_URL 与 ANTHROPIC_AUTH_TOKEN 都由 with-key.sh 注入 ——
+    // 它是唯一持有密钥的地方，也是唯一知道计量代理监听在哪个端口的地方。
     // BASE_URL 不带 /v1：CC 自己会拼出 /v1/messages。
-    // ANTHROPIC_AUTH_TOKEN 由 with-key.sh 注入 —— 它才是唯一持有密钥的地方。
     env: () => ({
-      ANTHROPIC_BASE_URL: GATEWAY,
       // 【必须显式设大，否则 CC 会交白卷】。实测网关的 Anthropic 兼容层在
       // max_tokens=4096 时，模型的 thinking 就把预算吃光：stop_reason=max_tokens，
       // 返回里只有 thinking 块、text 是空字符串。调到 16384 才正常出答案。
