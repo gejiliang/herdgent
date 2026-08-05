@@ -32,18 +32,34 @@ const MIN_SPREAD = 0.15;
 const PRIMARY = {
   review: { key: (r) => r.line_recall, label: "召回" },
   frontend: { key: (r) => (r.solved ? 1 : 0), label: "完成率" },
+  frontend2: { key: (r) => (r.solved ? 1 : 0), label: "完成率" },
+  // 定位用【文件精确率】而不是文件召回：同一段逻辑，有人答整个函数体、有人答关键三行，
+  // 都算找对了地方，召回容易被 ground truth 的文件数卡成 0/50/100 三档。
+  // 精确率是连续的（取决于报了几处、对了几处），分辨率高得多。
+  locate: { key: (r) => r.file_precision, label: "定位准" },
+  // 约束的主指标是【守没守住】，天然二值 —— 这类题的价值本就在「有没有人越界」，
+  // 不在于分出高下。全员守规是好消息，不是「没区分度」的坏消息。
+  constraint: { key: (r) => (r.violated ? 0 : 1), label: "守规率" },
 };
 
 const files = (await readdir(RESULTS).catch(() => [])).filter((f) => f.endsWith(".json") && f !== "SUMMARY.json");
 const rows = [];
 for (const f of files) {
-  const kind = f.startsWith("review-") ? "review" : f.startsWith("frontend-") ? "frontend" : null;
+  const kind = f.startsWith("review-") ? "review"
+    : f.startsWith("frontend2-") ? "frontend2"
+    : f.startsWith("frontend-") ? "frontend"
+    : f.startsWith("locate-") ? "locate"
+    : f.startsWith("constraint-") ? "constraint"
+    : null;
   if (!kind) continue;
   for (const r of JSON.parse(await readFile(join(RESULTS, f), "utf8"))) {
     // 网关抖动那次不是能力表现。老记录没有这个字段，用「短到不可能真跑过 + 零产出」补判
     const infra = r.infraFailure !== undefined
       ? r.infraFailure
-      : r.ms < 20_000 && (kind === "review" ? !r.parseOk && !r.total_generated : !r.specPassed && !r.filesChanged);
+      : r.ms < 20_000 && (kind === "review" ? !r.parseOk && !r.total_generated
+          : kind === "locate" ? !r.parseOk
+          : kind === "constraint" ? false
+          : !r.testPassed && !r.specPassed && !r.filesChanged);
     if (!infra) rows.push({ ...r, kind });
   }
 }
@@ -74,7 +90,8 @@ for (const [task, list] of byTask) {
   const spread = hi - lo;
 
   // 分辨率：主指标的最小刻度。评审是 1/标注数，前端的完成率是二值的
-  const gt = kind === "review" ? (list[0].positive_expected ?? null) : null;
+  const gt = kind === "review" ? (list[0].positive_expected ?? null)
+    : kind === "locate" ? (list[0].truth_files ?? null) : null;
   const step = kind === "review" && gt ? 1 / gt : 1;
   const distinct = new Set(vals.map((x) => x.v.toFixed(4))).size;
 

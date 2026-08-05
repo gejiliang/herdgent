@@ -1,0 +1,112 @@
+[
+  {
+    "task": "loc-baseline",
+    "tier": "基线",
+    "harness": "claude",
+    "wire": "anthropic/messages",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 207018,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 24,
+      "input": 21878,
+      "cached": 826752,
+      "output": 25642,
+      "reasoning": 0,
+      "unparsed": 1
+    },
+    "stdoutBytes": 3650,
+    "parseOk": true,
+    "formatStrict": false,
+    "total_reported": 6,
+    "truth_files": 1,
+    "file_recall": 1,
+    "file_precision": 0.6666666666666666,
+    "line_recall": 1,
+    "hitFiles": [
+      "packages/runtime-vapor/src/components/KeepAlive.ts"
+    ],
+    "missedFiles": [],
+    "filesTouched": 0,
+    "rawText": "The answer, ranked most-relevant first:\n\n```json\n[\n  {\n    \"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\",\n    \"from_line\": 390,\n    \"to_line\": 408,\n    \"why\": \"prepareBranchRemoval decides whether the outgoing branch is deactivated (cacheable, defer removal) or has its scope stopped so it will be unmounted outright: it resolves the cache key, returns false to let fragment.ts run removeBranch() when the branch should not be cached, and otherwise registers the branch scope in keptAliveScopes and defers removal.\"\n  },\n  {\n    \"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\",\n    \"from_line\": 409,\n    \"to_line\": 438,\n    \"why\": \"runBranchRender marks the incoming branch's shape flags, prunes stale cache entries (addCacheKey applies the max limit), and then either runs the deferred removePrevious() (the outgoing branch is removed from the DOM) or leaves the branch cached in the storage container, which is the decision of kept vs detached vs removed.\"\n  },\n  {\n    \"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\",\n    \"from_line\": 336,\n    \"to_line\": 372,\n    \"why\": \"onBeforeUnmount iterates the cached branches at KeepAlive teardown and decides for each cached entry whether it is the current one (deactivated as part of unmount) or removed outright via remove(cached, storageContainer), and stops all kept-alive scopes.\"\n  },\n  {\n    \"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\",\n    \"from_line\": 285,\n    \"to_line\": 304,\n    \"why\": \"pruneCacheEntry decides a cached branch is removed outright (unsetShapeFlag + remove from DOM) when the cache limit or include/exclude rules evict it, versus kept alive for the current branch.\"\n  },\n  {\n    \"path\": \"packages/runtime-vapor/src/fragment.ts\",\n    \"from_line\": 323,\n    \"to_line\": 348,\n    \"why\": \"DynamicFragment.update teardown of the previous branch consults keepAliveCtx.prepareBranchRemoval to decide whether removal is deferred (branch kept), then either defers the removeBranch closure or runs it to detach/remove the branch from the DOM.\"\n  },\n  {\n    \"path\": \"packages/runtime-vapor/src/component.ts\",\n    \"from_line\": 1280,\n    \"to_line\": 1295,\n    \"why\": \"unmountComponent decides a kept-alive component is deactivated (moved to the storage container) instead of unmounted when its parent is a KeepAlive with a context, otherwise it proceeds with normal unmount.\"\n  }\n]\n```",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-29-42-349Z-claude-loc-loc-baseline-1"
+  },
+  {
+    "task": "loc-spread",
+    "tier": "分化",
+    "harness": "claude",
+    "wire": "anthropic/messages",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 172131,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 23,
+      "input": 21381,
+      "cached": 782080,
+      "output": 19284,
+      "reasoning": 0,
+      "unparsed": 2
+    },
+    "stdoutBytes": 2862,
+    "parseOk": true,
+    "formatStrict": false,
+    "total_reported": 5,
+    "truth_files": 2,
+    "file_recall": 1,
+    "file_precision": 1,
+    "line_recall": 1,
+    "hitFiles": [
+      "packages/runtime-core/src/scheduler.ts",
+      "packages/runtime-core/src/components/Suspense.ts"
+    ],
+    "missedFiles": [],
+    "filesTouched": 0,
+    "rawText": "Based on my analysis of the fixture repository (`loc-spread`), the scheduler's draining loop lives in the Vue runtime-core scheduler. The core drain is `flushJobs`, which walks the `queue` array and runs each job in order; the post-flush and pre-flush callback queues are drained by `flushPostFlushCbs` and `flushPreFlushCbs`; `queuePostFlushCb` feeds the post-flush queue; and Suspense's `while (parent)` walk merges buffered effects into unresolved pending ancestors.\n\n```json\n[{\"path\": \"packages/runtime-core/src/scheduler.ts\", \"from_line\": 229, \"to_line\": 247, \"why\": \"flushJobs' main for-loop walks the scheduler's job queue in order, running each queued job via callWithErrorHandling — this is the actual drain loop.\"}, {\"path\": \"packages/runtime-core/src/scheduler.ts\", \"from_line\": 173, \"to_line\": 208, \"why\": \"flushPostFlushCbs drains pendingPostFlushCbs, deduping and sorting them, then walking the active post-flush callbacks in order.\"}, {\"path\": \"packages/runtime-core/src/scheduler.ts\", \"from_line\": 142, \"to_line\": 171, \"why\": \"flushPreFlushCbs walks the front of the job queue and runs each PRE-flagged job in order, removing it from the queue as it goes.\"}, {\"path\": \"packages/runtime-core/src/scheduler.ts\", \"from_line\": 125, \"to_line\": 140, \"why\": \"queuePostFlushCb enqueues callbacks (flattening arrays) into pendingPostFlushCbs and schedules the flush that drains them.\"}, {\"path\": \"packages/runtime-core/src/components/Suspense.ts\", \"from_line\": 616, \"to_line\": 625, \"why\": \"Walks up the parent suspense chain while a parent still has a pending branch, merging this suspense's buffered effects into the unresolved ancestor instead of flushing early.\"}]\n```",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-33-13-186Z-claude-loc-loc-spread-1"
+  },
+  {
+    "task": "loc-hard",
+    "tier": "难",
+    "harness": "claude",
+    "wire": "anthropic/messages",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 68540,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 24,
+      "input": 21371,
+      "cached": 633728,
+      "output": 7555,
+      "reasoning": 0,
+      "unparsed": 1
+    },
+    "stdoutBytes": 4454,
+    "parseOk": true,
+    "formatStrict": false,
+    "total_reported": 11,
+    "truth_files": 2,
+    "file_recall": 1,
+    "file_precision": 0.7272727272727273,
+    "line_recall": 0.5,
+    "hitFiles": [
+      "packages/compiler-vapor/src/generate.ts",
+      "packages/compiler-vapor/src/generators/expression.ts"
+    ],
+    "missedFiles": [],
+    "filesTouched": 0,
+    "rawText": "```json\n[\n  {\"path\": \"packages/compiler-vapor/src/generate.ts\", \"from_line\": 49, \"to_line\": 71, \"why\": \"CodegenContext.helper() invents the alias names for imported runtime helpers, starting from `_<name>` and appending numeric suffixes when the base name collides with user bindings or already-allocated aliases.\"},\n  {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 982, \"to_line\": 1001, \"why\": \"genVarName() sanitizes an expression's source (e.g. `foo + baz` -> `foo_baz`) and getUniqueDeclarationName() mints a collision-free name against reservedNames — the core name-producing utilities for cached expressions.\"},\n  {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 685, \"to_line\": 797, \"why\": \"processRepeatedExpressions() decides which duplicated expressions to cache and names those cache variables via getUniqueDeclarationName(genVarName(content)), replacing all matching occurrences with the invented name.\"},\n  {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 517, \"to_line\": 587, \"why\": \"processRepeatedVariables() caches repeated member-expression reads (e.g. `foo[baz]`) and produces their cached variable names with getUniqueDeclarationName(genVarName(name)).\"},\n  {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 343, \"to_line\": 395, \"why\": \"processExpressions() is the entry point that runs variable/expression analysis and invokes the repeated-variable and repeated-expression caching passes which invent the cached names.\"},\n  {\"path\": \"packages/compiler-vapor/src/generators/component.ts\", \"from_line\": 189, \"to_line\": 195, \"why\": \"getUniqueHandlerName() invents unique names for cached inline event handlers, basing them on the event key (`_on_click`) and appending a counter on collision.\"},\n  {\"path\": \"packages/compiler-vapor/src/generators/component.ts\", \"from_line\": 202, \"to_line\": 229, \"why\": \"processInlineHandlers() calls getUniqueHandlerName() to name each cached inline handler and rewrites the prop value to the invented identifier.\"},\n  {\"path\": \"packages/compiler-vapor/src/generate.ts\", \"from_line\": 174, \"to_line\": 196, \"why\": \"tName()/pName() generate sequential temp variable names `tN`/`pN` for cached template elements and placeholder props, advancing ids so they don't collide with user bindings.\"},\n  {\"path\": \"packages/compiler-vapor/src/generate.ts\", \"from_line\": 144, \"to_line\": 150, \"why\": \"isHelperNameAvailable() checks a proposed helper alias against user binding names and previously allocated helper aliases, driving the suffixing loop in helper().\"},\n  {\"path\": \"packages/compiler-vapor/src/transform.ts\", \"from_line\": 598, \"to_line\": 626, \"why\": \"buildNextIdMap()/getNextId() are the underlying id-allocation primitives that keep generated numeric ids (used in helper aliases, n1/x1/r1, tN/pN) from colliding with user-defined bindings.\"},\n  {\"path\": \"packages/compiler-vapor/src/generate.ts\", \"from_line\": 312, \"to_line\": 320, \"why\": \"genHelperImports() emits the `import { foo as _foo } from 'vue'` statement, materializing the aliases invented by helper() into the final JavaScript output.\"}\n]\n```",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-36-08-595Z-claude-loc-loc-hard-1"
+  }
+]

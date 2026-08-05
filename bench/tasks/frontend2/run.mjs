@@ -48,7 +48,10 @@ const taskIds = arg("task") ? arg("task").split(",") : TASKS.map((t) => t.id);
 const harnesses = arg("harness") ? arg("harness").split(",") : HARNESS_IDS;
 const reps = Number(arg("reps", "1"));
 
-const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+// 【文件名必须带 harness 与 pid】（踩过）：五家并行时同秒启动，
+// 光靠时间戳会撞名，后写的把先写的整个盖掉 —— 数据静默丢失，
+// 而且从结果文件上完全看不出来少了东西。
+const stamp = `${new Date().toISOString().replace(/[:.]/g, "-")}-${harnesses.join("_")}-${process.pid}`;
 const outFile = join(HERE, "..", "..", "results", `frontend2-${stamp}.json`);
 await mkdir(dirname(outFile), { recursive: true });
 
