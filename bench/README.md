@@ -95,6 +95,11 @@ codex 读 `~/.codex/AGENTS.md`、kimi 读 `~/.kimi-code/AGENTS.md`……
 | 断言全绿但 bug 明明在 | `toHaveTextContent` 是**子串匹配**，`"1290.50"` 能通过 `"90.50"` 的断言 | 金额一律用 `.textContent).toBe(...)` 精确比较 |
 | `import` 一下就把 fixture 重建了 | `build.mjs` 顶层无条件 `await build()`，而 `run.mjs` 要 import 它的 `TASKS` | 只在 `process.argv[1]` 是自己时才 build |
 | 一家 8 秒退出、零输出，看起来像「能力极差」 | 网关的 TLS 抖动（`unknown certificate verification error`），跟能力无关 | 自动重试；判据要求 stderr 命中网络错误**且**完全没有产出。结果里 `infraFailure` 标记，统计时先过滤 |
+| pnpm 装的 `node_modules` 一复制就废 | pnpm 默认把包放 `.pnpm/`、各处用符号链接引用，且链接跨越目录边界。副本会去读**原始 fixture** 的路径（错误堆栈里能看到原路径）。`cp -c`、`ditto`、把根 `node_modules` 做成符号链接，三种都试过，都不行 | `pnpm install --node-linker=hoisted` —— 装成扁平的实体目录（像 npm），可以自由复制。**每次运行一份独立干净副本是硬需求，不能妥协** |
+| `--ignore-scripts` 装完，模块解析失败 | vue 的 `prepare` 脚本没跑，workspace 包内的 `node_modules` 没建好。症状是 `Failed to resolve import "entities/decode"`，看着像依赖缺失 | 不要 `--ignore-scripts`。完整装一次 66 秒，省不得 |
+| 测试报 `no tests`，看着像 fixture 坏了 | 拿 `__snapshots__/*.snap` 当运行目标了 —— 快照是测试资产、必须一起复制，但不能拿它当入口 | 复制的文件和运行的目标分开记（`tests` vs `runTests`） |
+| `npx vitest` 报 `Cannot find package 'jsdom'` | 拿的是 npx 缓存里的 vitest，不是项目本地的。vue 现在用 `vp`（vite-plus-test）而非标准 vitest | 一律走 `./node_modules/.bin/` 里项目自带的 runner |
+| `vp test --project unit` 得到 `No test files found` 并退出码 1 | `unit` 这个 project 明确排除了 `runtime-vapor` / `runtime-dom`。看着像全挂，其实一条都没跑 | 用通配 `--project 'unit*'`（package.json 里就是这么写的） |
 | 长批次跑到一半被杀 | **后台任务约 20–25 分钟就会被环境中止**（实测连续多次） | 每批控制在 15 分钟内。难题单次接近 15 分钟，所以**一次只能跑一个**。结果每次运行后就落盘，中止不丢数据 |
 | 批次被中止时，正在跑的那次也没了 | 中止会杀掉整个进程组，评测子进程跟着一起死，那一次的钱白花 | 单次长任务用 `nohup … &` 在**普通调用**里起（不是工具的 background 模式，那样会嵌套），让它被 init 收养。macOS 没有 `setsid` |
 

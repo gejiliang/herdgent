@@ -6,3 +6,6 @@ tasks/review/fixtures/
 tasks/review/answers.json
 tasks/frontend/fixtures/
 tasks/frontend/app/node_modules/
+tasks/frontend2/fixtures/
+tasks/frontend2/.node_modules-cache/
+tasks/frontend2/answers.json
