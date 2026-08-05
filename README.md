@@ -242,4 +242,4 @@ herdr server 重启后只恢复布局、不恢复运行时：agent 进程全被�
 
 ## 许可
 
-Apache-2.0。与 herdr（AGPL-3.0-or-later）经 CLI/socket 交互，不链接其代码。
+Apache-2.0。herdr 自 0.8.0 起同为 Apache-2.0（之前为 AGPL-3.0-or-later），交互仍只经 CLI/socket，不链接其代码。

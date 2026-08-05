@@ -2,7 +2,7 @@
 
 > **本文件是本项目章程的唯一真源**，`CLAUDE.md` 只是指向它的软链——改章程改本文件。
 > 只写「在这个目录里干活才需要的东西」；harness 独有的落点写进末尾对应小节。全局配置 `~/.agents/AGENTS.md` 已注入，不复述。
-> 项目是什么、现状如何见 [`README.md`](README.md)；实测踩过的坑见 [`docs/findings-2026-07-31.md`](docs/findings-2026-07-31.md)。
+> 项目是什么、现状如何见 [`README.md`](README.md)；实测踩过的坑见 [`docs/findings-2026-07-31.md`](docs/findings-2026-07-31.md)（0.7.5 时代）与 [`docs/findings-2026-08-05.md`](docs/findings-2026-08-05.md)（0.8.0 时代，含许可证变更与新的可观测面）。
 
 ## 不可逆约束
 
@@ -72,6 +72,8 @@ herdgent 是 **herdr plugin + 外部进程**，不 fork herdr、不改 herdr 核
 **每加一处能力前先问：这能不能做成 plugin action / event / startup 钩子，或者做成 harness 侧的 hook？** 能就不碰 herdr 源码。fork 只在证明某个原语确实缺失时才考虑，且要留下证据。
 
 理由：herdr 在快速迭代（0.7.5 才刚加 `[[startup]]` 与整套 agent CLI），fork 的长期成本是跟上游 diverge，而 plugin 路线可以 `herdr plugin install` 分发。
+
+注意这不 fork 是**纯工程判断**：herdr 自 0.8.0 起与 herdgent 同为 Apache-2.0（之前为 AGPL），许可证从来只是附带的约束、不是论证本身。
 
 ## 编排层的边界
 

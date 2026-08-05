@@ -2,5 +2,5 @@ Herdgent
 Copyright 2026 gejiliang
 
 本项目采用 Apache-2.0，理由是可以合法吸收 omnigent（Databricks, Apache-2.0）的实现思路与代码。
-反方向不成立：herdr 是 AGPL-3.0-or-later，其代码不得并入本项目。
-herdgent 通过 CLI / socket 与 herdr 交互，不链接其代码，因此不构成衍生作品。
+herdr 自 0.8.0 起同为 Apache-2.0（0.8.0 之前为 AGPL-3.0-or-later）；即便在 AGPL 时期，herdgent 也只通过
+CLI / socket 与 herdr 交互、不链接其代码，不构成衍生作品。
