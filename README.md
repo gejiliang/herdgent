@@ -17,6 +17,9 @@
 
 herdgent 不选控制流范式——它只提供动词，编排逻辑是使用者的 skill / prompt / workflow 脚本。
 
+这张表的证据在 [`docs/orchestrators-compared.md`](docs/orchestrators-compared.md)——
+polly 与 Claude Code dynamic workflow 的实测画像（读源码 / 读工具契约得来，不是文档转述）。
+
 ## 与 omnigent 的对照
 
 omnigent 是参照物（Apache-2.0，Databricks + Neon）。只借设计，不搬代码。
@@ -85,7 +88,13 @@ node bin/install.mjs --print    # 只打印命令，自己去跑
 
 与开发工作副本分开：MCP 配置里存的是绝对路径，指向工作副本的话改一行代码就立刻
 影响所有正在用的会话——隔一个显式的 install 步骤，改动什么时候生效由人决定。
-**已经开着的会话不会加载新版本**，新开会话才生效。
+
+> ⚠️ **install 会当场切断正在运行会话的 MCP 通道**，不是「继续用旧版」。
+> MCP server 是会话的 stdio 子进程，跑的是 `~/.herdgent` 下的绝对路径，文件被整体
+> 换掉进程就没了——编排工具当场从工具列表消失（实测）。
+> **编排跑到一半绝不 install**：worker 还在跑时装新版，你会失去 `wait_for_worker` /
+> `read_worker` / `cancel_worker`，只能靠 herdr CLI 手工收场，而且没有断点续跑可救。
+> 详见 [findings 第十九节](docs/findings-2026-07-31.md)。
 
 > herdr 会另外建两个**空目录**并在 `plugin list` 里显示：
 > `~/.local/state/herdr/plugins/herdgent` 与 `~/.config/herdr/plugins/config/herdgent`。
