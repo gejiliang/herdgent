@@ -236,9 +236,11 @@ pi 的模型经 quota-proxy 覆盖 Anthropic / OpenAI / Google / Moonshot / 阿�
 
 ## 为什么需要对账（一个具体例子）
 
-herdr server 重启后只恢复布局、不恢复运行时：agent 进程全被杀，但 `agent list` 仍然报它们 `idle` + `interactive_ready: true`，而同一个 pane 在 `pane read` 下是 `pane_not_found`。**只看 agent 接口的编排器会对着尸体发指令。** `[[startup]]` 对账就是为此存在——实测能正确判死。
+**前提**（herdr 0.7.5 实测，0.8.0 改了 headless 恢复行为，**尚未重验**）：server 重启后只恢复布局、不恢复运行时——agent 进程全被杀，但 `agent list` 仍然报它们 `idle` + `interactive_ready: true`，而同一个 pane 在 `pane read` 下是 `pane_not_found`。**只看 agent 接口的编排器会对着尸体发指令。**
 
-细节见 [docs/findings-2026-07-31.md](docs/findings-2026-07-31.md)。
+**结论**（两种恢复行为下都成立，不依赖上面的前提）：`[[startup]]` 对账的判据是 pane 侧的 `process-info`——agent 真被恢复就探到活的，真死了就 `pane_not_found`，实测能正确判死。
+
+细节见 [docs/findings-2026-07-31.md](docs/findings-2026-07-31.md)（0.7.5 实测）与 [docs/findings-2026-08-05.md](docs/findings-2026-08-05.md)（0.8.0 行为变化）。
 
 ## 许可
 
