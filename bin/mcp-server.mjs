@@ -548,8 +548,9 @@ const TOOLS = [
           if (typeof read?.text === "string" && typeof read.truncated === "boolean") {
             return { worker_id: w.slug, mode, screen: read.text, herdr_truncated: read.truncated };
           }
-        } catch {
+        } catch (e) {
           // socket 是为了 `truncated` 的增强路径；不可用时必须保持原有的 CLI 读取能力。
+          log(`read_worker ${w.slug} screen socket fallback: ${e?.code || "unknown"}: ${e?.message || "no message"}`);
         }
 
         // agent read 吐的是终端内容本身，不是 JSON。socket 不可用或没有 truncated 时
