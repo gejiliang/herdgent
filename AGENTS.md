@@ -84,7 +84,9 @@ herdgent 的产品形态就是跨 harness 编排（见 README），所以「不�
 - **语义活在 prompt / skill / workflow 脚本里**——谁是 tech lead、什么归实现什么归评审、跨厂商互审怎么配对，全部是编排者自己的事，herdgent 不认识这些概念。
 - **判据**：herdgent 代码里出现 `Role` / `Workflow` / `Protocol` / `Template` 这类**类型定义**就是越界。prompt 里写满角色分工是正常的。
   参照物：omnigent 的 polly 有完整的多 agent 编排能力，而它的 `config.yaml` 里真正的代码只有「声明 6 个子 agent + 3 条 guardrail + 4 个开关」，其余整段是自然语言 prompt。SPQR v2 的 13k 行死在把同样的语义固化成了类型。
-- **spawn 必须有硬上限**，写死在工具里，不做成配置。参照：polly 每轮 6 个派发，Claude Code dynamic workflow 是 16 并发 / 1000 总量，Codex 是 `max_threads 6` / `max_depth 1`。并行会话失控是静默的。
+- **spawn 必须有硬上限，且上限本身是可配置项**（GG 定）。并行会话失控是静默的，所以闸门不能没有；但每次编排的规模不一样，写死会挡住合理的大扇出。实现分两层：
+  - **默认值**：`DEFAULT_MAX_WORKERS`（现为 16，对齐 Claude Code dynamic workflow 的 16 并发），启动可用 `--max-workers` 覆盖。参照：polly 每轮 6 个派发，Codex 是 `max_threads 6` / `max_depth 1`。
+  - **运行时可调**：`set_worker_limit`，范围 1–50，那个 50 才是写死在工具里的硬上界。值存 registry 的 orchestration 记录，每次 spawn 现读——所以**改默认值不追溯已启动的编排**（启动时就把当时的值固化进了那格）。
 
 ## 代码约定
 

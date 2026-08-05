@@ -100,7 +100,10 @@ const REPO = flag("repo", process.cwd());
 // 不能靠 action 参数——改成运行时可调：启动值来自插件配置，orchestrator 可以用
 // set_worker_limit 改（用户一句「这次最多开 3 个」即可）。值存在 registry 里，
 // 每次 spawn 现读，所以改完立刻生效。
-const DEFAULT_MAX_WORKERS = 6;
+// 默认值 2026-08-05 由 6 提到 16，对齐 Claude Code dynamic workflow 的 16 并发。
+// 注意【旧编排不会跟着变】：启动时把当时的值固化进 registry 的 orchestration 记录，
+// 之后 workerLimit() 优先读那一格，所以改默认只影响新起的编排。
+const DEFAULT_MAX_WORKERS = 16;
 const START_MAX_WORKERS = Number(flag("max-workers", DEFAULT_MAX_WORKERS)) || DEFAULT_MAX_WORKERS;
 
 function workerLimit() {
