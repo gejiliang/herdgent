@@ -9,3 +9,7 @@ tasks/frontend/app/node_modules/
 tasks/frontend2/fixtures/
 tasks/frontend2/.node_modules-cache/
 tasks/frontend2/answers.json
+tasks/constraint/fixtures/
+tasks/constraint/answers.json
+tasks/locate/fixtures/
+tasks/locate/answers.json
