@@ -890,6 +890,17 @@ function ensureSpace(label, branch, container = "worktree") {
 //   · 步骤之间【串行】——后一步通常要等前一步的产物
 //   · 步骤【内部】并行——task 给数组就并行派几个
 // 不需要额外的并发声明，也就没有额外要记的概念。
+function waitFailureReason(state, worker) {
+  const who = worker?.title ? `'${worker.title}' (${state.worker_id})` : `'${state.worker_id}'`;
+  if (state.status === "blocked") {
+    return `worker ${who} is blocked and needs a human — use read_worker mode=screen for ${state.worker_id} to see its approval or question`;
+  }
+  if (state.status === "unreachable") {
+    return `worker ${who} is unreachable (${state.reason || "event stream unavailable"}) — use read_worker mode=screen for ${state.worker_id} and inspect its pane`;
+  }
+  return `worker ${who} is still_running after the wait ceiling — use read_worker mode=screen for ${state.worker_id} to see what it is doing before waiting again`;
+}
+
 async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode = "rex", container }) {
   assertCanSpawn();
   if (!Array.isArray(steps) || steps.length === 0) {
@@ -1054,24 +1065,73 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
     ctx.steps[stepId] = { workers: spawned, branch: space.branch };
     const settled = await waitAllWorkers(spawned.map((w) => w.slug));
 
-    const blocked = settled.filter((x) => x.status === "blocked");
-    if (blocked.length) {
-      setStageStatus(stage.tabId, stageLabel, "blocked");
-      recordStage(stage.tabId, "blocked");
+    const byWorkerId = new Map(spawned.map((w) => [w.slug, w]));
+    const interrupted = settled.filter((x) => ["blocked", "unreachable", "still_running"].includes(x.status));
+    if (interrupted.length) {
+      // blocked 说明人可以继续答；看不见或等满则不能假装这步还有可用产物。
+      const stageStatus = interrupted.some((x) => x.status !== "blocked") ? "failed" : "blocked";
+      const workers = interrupted.map((x) => ({
+        ...x,
+        title: byWorkerId.get(x.worker_id)?.title,
+        reason: waitFailureReason(x, byWorkerId.get(x.worker_id)),
+      }));
+      setStageStatus(stage.tabId, stageLabel, stageStatus);
+      recordStage(stage.tabId, stageStatus);
       results.push({
         step: stepId,
         ok: false,
-        status: "blocked",
+        status: stageStatus,
         tab: stage.tabId,
-        workers: blocked.map((b) => ({ worker_id: b.worker_id, title: b.title })),
+        workers,
       });
-      log(`plan ${id} stopped: step ${stepId} blocked`);
+      log(`plan ${id} stopped: step ${stepId} ${workers.map((w) => `${w.worker_id}:${w.status}`).join(",")}`);
       return {
         run: id,
         workspace_id: space.workspaceId,
         completed: false,
         stopped_at: stepId,
-        reason: "a worker needs a human — read_worker mode=screen to see what it is asking",
+        reason: workers.map((w) => w.reason).join(" | "),
+        results,
+      };
+    }
+
+    // done / idle 只代表 agent 到了终态，不代表产物已能读到。没有可读回复时
+    // 继续下一步只会把「没开始」伪装成成功，并把空文本喂给后续 worker。
+    const outputByWorkerId = new Map();
+    const missingOutput = [];
+    for (const worker of spawned) {
+      try {
+        const output = readWorkerResult(worker.slug);
+        if (!(output.assistant_turns > 0) || !String(output.text ?? "").trim()) {
+          missingOutput.push({
+            worker_id: worker.slug,
+            title: worker.title,
+            reason: `worker '${worker.title}' reached a terminal state but produced no readable output — use read_worker mode=screen for ${worker.slug}`,
+          });
+          continue;
+        }
+        outputByWorkerId.set(worker.slug, output);
+      } catch (e) {
+        missingOutput.push({
+          worker_id: worker.slug,
+          title: worker.title,
+          reason:
+            `worker '${worker.title}' reached a terminal state but its output is unavailable (${e.code || "unknown"}) — ` +
+            `use read_worker mode=screen for ${worker.slug}`,
+        });
+      }
+    }
+    if (missingOutput.length) {
+      setStageStatus(stage.tabId, stageLabel, "failed");
+      recordStage(stage.tabId, "failed");
+      results.push({ step: stepId, ok: false, status: "failed", tab: stage.tabId, workers: missingOutput });
+      log(`plan ${id} stopped: step ${stepId} missing output ${missingOutput.map((w) => w.worker_id).join(",")}`);
+      return {
+        run: id,
+        workspace_id: space.workspaceId,
+        completed: false,
+        stopped_at: stepId,
+        reason: missingOutput.map((w) => w.reason).join(" | "),
         results,
       };
     }
@@ -1083,15 +1143,12 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
       ok: true,
       tab: stage.tabId,
       attached: attached?.path,
-      workers: spawned.map((w) => {
-        let text = "";
-        try {
-          text = readWorkerResult(w.slug).text ?? "";
-        } catch (e) {
-          text = `(结果暂时读不到：${e.code})`;
-        }
-        return { worker_id: w.slug, title: w.title, profile: w.profile, result: text };
-      }),
+      workers: spawned.map((w) => ({
+        worker_id: w.slug,
+        title: w.title,
+        profile: w.profile,
+        result: outputByWorkerId.get(w.slug).text,
+      })),
     });
     log(`plan ${id} step ${stepId} done workers=${spawned.length}`);
   }
