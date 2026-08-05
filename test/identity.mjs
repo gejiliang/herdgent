@@ -3,7 +3,8 @@
 //
 // 不需要 herdr server（只读 registry + 走协议），所以进 npm test。
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -15,7 +16,7 @@ function check(name, ok, detail = "") {
 }
 
 // 起一个 MCP server，握手 + 列工具 + ping，然后关掉。
-function probe({ args = [], env = {}, probeSpawn = false } = {}) {
+function probe({ args = [], env = {}, probeSpawn = false, calls = [] } = {}) {
   return new Promise((res, rej) => {
     const proc = spawn(process.execPath, [SERVER, ...args], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -54,6 +55,21 @@ function probe({ args = [], env = {}, probeSpawn = false } = {}) {
       const ping = await send("tools/call", { name: "ping", arguments: {} });
       out.ping = JSON.parse(ping.result?.content?.[0]?.text ?? "{}");
 
+      out.calls = {};
+      for (const call of calls) {
+        const reply = await send("tools/call", { name: call.name, arguments: call.arguments ?? {} });
+        const text = reply.result?.content?.[0]?.text ?? "{}";
+        let body;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = { raw: text };
+        }
+        out.calls[call.key ?? call.name] = reply.result
+          ? { isError: !!reply.result.isError, ...body }
+          : { rpcError: reply.error };
+      }
+
       // ⚠️ 只在【预期会被拒】的身份上调 spawn_worker。
       // 编排者身份下这个调用会【真的去建 workspace、真的起一个 agent】——
       // 曾经在这里翻过车：以为 HERDR_SOCKET_PATH="" 能让它连不上，
@@ -75,12 +91,57 @@ function probe({ args = [], env = {}, probeSpawn = false } = {}) {
   });
 }
 
+function fakeHerdr(dir) {
+  const bin = join(dir, "fake-herdr.mjs");
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env node
+if (process.argv[2] === "agent" && process.argv[3] === "read") {
+  process.stdout.write(process.env.HG_FAKE_SCREEN || "fake CLI screen\\n");
+  process.exit(0);
+}
+const code = process.env.HG_FAKE_HERDR_CODE || "server_not_running";
+process.stderr.write(JSON.stringify({ id: "fake", error: { code, message: "fake herdr error" } }) + "\\n");
+process.exit(1);
+`,
+  );
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
+async function startReadSocket(socketPath, result, requests) {
+  const server = createNetServer((client) => {
+    let buffer = "";
+    client.on("data", (chunk) => {
+      buffer += chunk;
+      const end = buffer.indexOf("\n");
+      if (end < 0) return;
+      const request = JSON.parse(buffer.slice(0, end));
+      requests.push(request);
+      client.end(JSON.stringify({ id: request.id, result }) + "\n");
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return server;
+}
+
+function closeServer(server) {
+  return new Promise((resolve) => server.close(resolve));
+}
+
 // 第二层保险：把 herdr socket 指向一个不存在的路径。即使将来某个断言写漏了，
 // 也不可能连上真的 herdr 去建东西。测试【永远】不该有碰到 default session 的可能。
 const DEAD_SOCKET = join(tmpdir(), "hg-identity-no-such-herdr.sock");
 
 const state = mkdtempSync(join(tmpdir(), "hg-identity-"));
 mkdirSync(state, { recursive: true });
+const fakeBin = fakeHerdr(state);
 
 // 造一张登记表：w9:p1 是某次编排的 worker
 writeFileSync(
@@ -165,6 +226,81 @@ try {
   });
   check("显式 --root 优先于自动推导", explicit.ping.root === "orc-explicit", explicit.ping.root);
   check("显式 --root 时是编排者", explicit.ping.role === "orchestrator", explicit.ping.role);
+
+  // ---- 4. screen 读取优先走 socket，透出 herdr 自己的截断标志 ----
+  const readSocket = join(state, "agent-read.sock");
+  const requests = [];
+  const socketServer = await startReadSocket(readSocket, { text: "socket screen", truncated: true }, requests);
+  try {
+    const screen = await probe({
+      args: ["--root", "orc-test"],
+      env: {
+        HERDGENT_STATE_DIR: state,
+        HERDR_SOCKET_PATH: readSocket,
+        HERDR_BIN_PATH: fakeBin,
+        HG_FAKE_SCREEN: "CLI must not be used\\n",
+      },
+      calls: [{ key: "screen", name: "read_worker", arguments: { worker_id: "wk1", mode: "screen", lines: 27 } }],
+    });
+    check("screen 读取透出 herdr_truncated", screen.calls.screen.screen === "socket screen" && screen.calls.screen.herdr_truncated === true, JSON.stringify(screen.calls.screen));
+    const request = requests[0];
+    check(
+      "screen socket 请求是 agent.read",
+      request?.method === "agent.read" && request.params?.target === "w9:p1" && request.params?.source === "visible" && request.params?.lines === 27,
+      JSON.stringify(request),
+    );
+  } finally {
+    await closeServer(socketServer);
+  }
+
+  // socket 结果缺 metadata 时也必须走旧 CLI 路径，不能把残缺 response 当完整 screen。
+  const incompleteSocket = join(state, "agent-read-incomplete.sock");
+  const incompleteServer = await startReadSocket(incompleteSocket, { text: "missing metadata" }, []);
+  try {
+    const fallback = await probe({
+      args: ["--root", "orc-test"],
+      env: {
+        HERDGENT_STATE_DIR: state,
+        HERDR_SOCKET_PATH: incompleteSocket,
+        HERDR_BIN_PATH: fakeBin,
+        HG_FAKE_SCREEN: "CLI fallback",
+      },
+      calls: [{ key: "screen", name: "read_worker", arguments: { worker_id: "wk1", mode: "screen" } }],
+    });
+    check("screen 缺 truncated 时回退 CLI", fallback.calls.screen.screen === "CLI fallback" && fallback.calls.screen.herdr_truncated === null, JSON.stringify(fallback.calls.screen));
+  } finally {
+    await closeServer(incompleteServer);
+  }
+
+  // 不可连接 socket 也是降级，不可让诊断工具失效。
+  const unavailable = await probe({
+    args: ["--root", "orc-test"],
+    env: {
+      HERDGENT_STATE_DIR: state,
+      HERDR_SOCKET_PATH: join(state, "no-such-agent-read.sock"),
+      HERDR_BIN_PATH: fakeBin,
+      HG_FAKE_SCREEN: "CLI after socket error",
+    },
+    calls: [{ key: "screen", name: "read_worker", arguments: { worker_id: "wk1", mode: "screen" } }],
+  });
+  check("screen socket 不可用时回退 CLI", unavailable.calls.screen.screen === "CLI after socket error" && unavailable.calls.screen.herdr_truncated === null, JSON.stringify(unavailable.calls.screen));
+
+  // ---- 5. server_not_running 给状态和 spawn 一条准确的可操作错误 ----
+  const noServer = await probe({
+    args: ["--root", "orc-test"],
+    env: {
+      HERDGENT_STATE_DIR: state,
+      HERDR_SOCKET_PATH: join(state, "no-such-herdr.sock"),
+      HERDR_BIN_PATH: fakeBin,
+      HG_FAKE_HERDR_CODE: "server_not_running",
+    },
+    calls: [
+      { key: "status", name: "herdr_status" },
+      { key: "spawn", name: "spawn_worker", arguments: { title: "must-not-start", profile: "impl-gpt", task: "must never run" } },
+    ],
+  });
+  check("herdr_status 说明 server 没跑", noServer.calls.status.isError && noServer.calls.status.error === "server_not_running" && noServer.calls.status.message.includes("herdr server is not running"), JSON.stringify(noServer.calls.status));
+  check("spawn 说明 server 没跑", noServer.calls.spawn.isError && noServer.calls.spawn.error === "server_not_running" && noServer.calls.spawn.message.includes("herdr server is not running"), JSON.stringify(noServer.calls.spawn));
 } finally {
   rmSync(state, { recursive: true, force: true });
 }

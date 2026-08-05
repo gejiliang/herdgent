@@ -8,7 +8,10 @@
 //   · 但 `agent list` / `agent get` 仍然报该 agent 为 idle + interactive_ready=true，
 //     而同一个 pane 在 `pane read` / `pane process-info` 下是 pane_not_found。
 // 只看 agent 接口的编排层会认为有个空闲 agent 待命，然后对着尸体发指令。
-// 结论：pane 侧是权威，agent 侧不是。
+//
+// herdr 0.8.0 改为 headless server 也会恢复已还原的 agent session；上述前提尚未在
+// 0.8.0 下重验。无论实际恢复还是留下幽灵，pane `process-info` 仍是正确判据：真恢复
+// 的 pane 会被探到，死掉的 pane 会报 pane_not_found。所以机制不依赖 0.7.5 的前提。
 import { tryHerdr } from "../lib/herdr.mjs";
 import * as registry from "../lib/registry.mjs";
 
@@ -35,9 +38,10 @@ let alive = 0;
 for (const s of snapshot) {
   const pane = tryHerdr(["pane", "process-info", "--pane", s.pane_id]);
 
-  if (!pane.ok && pane.code === "spawn_failed") {
+  if (!pane.ok && (pane.code === "spawn_failed" || pane.code === "server_not_running")) {
     // herdr 本身不可达：不要据此宣告任何会话死亡，否则一次网络/权限抖动就抹掉全部登记。
-    console.log(`herdgent: herdr unreachable (${pane.message}); reconcile aborted, registry untouched`);
+    const reason = pane.code === "server_not_running" ? "herdr server is not running" : "herdr executable is unavailable";
+    console.log(`herdgent: ${reason} (${pane.message}); reconcile aborted, registry untouched`);
     process.exit(0);
   }
 

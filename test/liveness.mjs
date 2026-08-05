@@ -4,9 +4,10 @@
 // 原始缺陷（FIXME #1）：没人把【agent 已经没了】的 worker 从 active 改走，
 // 于是它永远算 live，静默占着并发额度，撞上限时也看不出是被谁占的。
 // 修的是「缺对账」，不是「判据写错了」——判据一直是白名单，且必须是白名单。
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 let failures = 0;
 function check(name, ok, detail = "") {
@@ -19,6 +20,17 @@ mkdirSync(join(home, "state"), { recursive: true });
 process.env.HERDGENT_HOME = home;
 // 结构性隔离：这个进程必须根本连不上真 herdr。
 process.env.HERDR_SOCKET_PATH = join(home, "no-such-herdr.sock");
+const fakeHerdr = join(home, "fake-herdr.mjs");
+writeFileSync(
+  fakeHerdr,
+  `#!/usr/bin/env node
+const code = process.env.HG_FAKE_HERDR_CODE || "pane_not_found";
+process.stderr.write(JSON.stringify({ id: "fake", error: { code, message: "fake herdr error" } }) + "\\n");
+process.exit(1);
+`,
+);
+chmodSync(fakeHerdr, 0o755);
+process.env.HERDR_BIN_PATH = fakeHerdr;
 
 const registry = await import(`../lib/registry.mjs?t=${Date.now()}`);
 
@@ -78,7 +90,7 @@ function seed(rows) {
 
 // ---- 对账把消失的 agent 标 dead ----
 //
-// socket 指向不存在的路径，所以每次 agent get 都失败 = 每个 worker 都被判 dead。
+// fake herdr 固定返回 pane_not_found，所以每次 agent get 都失败 = 每个 worker 都被判 dead。
 // 这正是要验的行为：herdr 说没有，registry 就得跟着改，而不是继续记着 active。
 {
   seed([{ status: "active" }, { status: "active" }]);
@@ -90,6 +102,37 @@ function seed(rows) {
   check("对账查了每个 worker", r.checked === 2, JSON.stringify(r));
   check("agent 不在了就标 dead", after === 0, `${after}`);
   check("dead 的记录还在（留给人查）", registry.list().length === 2, `${registry.list().length}`);
+}
+
+// herdr server 没跑不是单个 worker 死了。常规对账不能把整张表标 dead。
+{
+  seed([{ status: "active" }, { status: "active" }]);
+  process.env.HG_FAKE_HERDR_CODE = "server_not_running";
+  const { reconcileLive } = await import(`../lib/worker.mjs?t=${Date.now()}-3`);
+  const before = readFileSync(join(home, "state", "registry.json"), "utf8");
+  const r = reconcileLive("R");
+  const after = readFileSync(join(home, "state", "registry.json"), "utf8");
+  check("server_not_running 中止常规对账", r.aborted === true && r.code === "server_not_running", JSON.stringify(r));
+  check("常规对账不改 registry", after === before);
+}
+
+// [[startup]] 对账也必须在 server_not_running 时原样保留 registry。
+{
+  seed([{ status: "active" }, { status: "failed" }]);
+  const before = readFileSync(join(home, "state", "registry.json"), "utf8");
+  const run = spawnSync(process.execPath, [resolve(import.meta.dirname, "../bin/reconcile.mjs")], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HERDGENT_HOME: home,
+      HERDR_SOCKET_PATH: join(home, "no-such-herdr.sock"),
+      HERDR_BIN_PATH: fakeHerdr,
+      HG_FAKE_HERDR_CODE: "server_not_running",
+    },
+  });
+  const after = readFileSync(join(home, "state", "registry.json"), "utf8");
+  check("startup reconcile 在 server_not_running 时中止", run.status === 0 && run.stdout.includes("herdr server is not running"), `${run.status}: ${run.stdout}`);
+  check("startup reconcile 不改 registry", after === before);
 }
 
 rmSync(home, { recursive: true, force: true });

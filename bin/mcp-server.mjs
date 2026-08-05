@@ -10,7 +10,7 @@ import { appendFileSync, readFileSync, readdirSync, writeFileSync, mkdirSync } f
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
-import { watchPaneStatus } from "../lib/events.mjs";
+import { watchPaneStatus, readAgentScreen } from "../lib/events.mjs";
 import { tryHerdr, herdrText } from "../lib/herdr.mjs";
 
 const argv = process.argv.slice(2);
@@ -113,6 +113,22 @@ function log(line) {
     appendFileSync(join(registry.stateDir(), "mcp.log"), `${new Date().toISOString()} [${ROOT}] ${line}\n`);
   } catch {
     // 日志失败不值得中断服务
+  }
+}
+
+function explainHerdrFailure(error, action) {
+  if (error?.code !== "server_not_running") return error;
+  return Object.assign(
+    new Error(`herdr server is not running; cannot ${action}. ${error.message}`),
+    { code: error.code },
+  );
+}
+
+function startWorkerSession(options) {
+  try {
+    return startManagedSession(options);
+  } catch (e) {
+    throw explainHerdrFailure(e, "start a worker");
   }
 }
 
@@ -224,7 +240,7 @@ const TOOLS = [
         );
       }
 
-      const entry = startManagedSession({
+      const entry = startWorkerSession({
         cwd: args.cwd || REPO,
         task: args.task,
         harness,
@@ -487,7 +503,7 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {}, required: [] },
     handler: async () => {
       const r = tryHerdr(["workspace", "list"]);
-      if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code });
+      if (!r.ok) throw explainHerdrFailure(Object.assign(new Error(r.message), { code: r.code }), "check herdr status");
       return { ok: true, workspaces: (r.result.workspaces || []).length };
     },
   },
@@ -526,14 +542,25 @@ const TOOLS = [
       const mode = args.mode || "result";
 
       if (mode === "screen") {
-        // agent read 吐的是终端内容本身，不是 JSON——必须走 herdrText，
-        // 否则 JSON 解析会把正常输出当成协议损坏。
+        const lines = Number(args.lines) || 60;
+        try {
+          const read = await readAgentScreen(w.pane_id, { source: "visible", lines });
+          if (typeof read?.text === "string" && typeof read.truncated === "boolean") {
+            return { worker_id: w.slug, mode, screen: read.text, herdr_truncated: read.truncated };
+          }
+        } catch {
+          // socket 是为了 `truncated` 的增强路径；不可用时必须保持原有的 CLI 读取能力。
+        }
+
+        // agent read 吐的是终端内容本身，不是 JSON。socket 不可用或没有 truncated 时
+        // 保持 CLI 降级；herdr_truncated=null 明确表示这个元数据未知，不与 result 模式
+        // 的自有 `truncated`（maxChars）混用。
         const screen = herdrText([
           "agent", "read", w.pane_id,
           "--source", "visible",
-          "--lines", String(Number(args.lines) || 60),
+          "--lines", String(lines),
         ]);
-        return { worker_id: w.slug, mode, screen };
+        return { worker_id: w.slug, mode, screen, herdr_truncated: null };
       }
 
       const t = readWorkerResult(w.slug);
@@ -1007,10 +1034,11 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         });
         spawned.push({ slug: entry.slug, title, profile: profileName });
       } catch (e) {
+        const failure = explainHerdrFailure(e, "start a worker");
         setStageStatus(stage.tabId, stageLabel, "failed");
         recordStage(stage.tabId, "failed");
-        results.push({ step: stepId, ok: false, error: e.code || "spawn_failed", message: e.message });
-        log(`plan ${id} step ${stepId} spawn failed: ${e.message}`);
+        results.push({ step: stepId, ok: false, error: failure.code || "spawn_failed", message: failure.message });
+        log(`plan ${id} step ${stepId} spawn failed: ${failure.message}`);
         return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
       }
     }
