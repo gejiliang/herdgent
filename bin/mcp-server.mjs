@@ -103,13 +103,13 @@ const REPO = flag("repo", process.cwd());
 // set_worker_limit 改（用户一句「这次最多开 3 个」即可）。值存在 registry 里，
 // 每次 spawn 现读，所以改完立刻生效。
 // 默认值 2026-08-05 由 6 提到 16，对齐 Claude Code dynamic workflow 的 16 并发。
-// 显式选择才存进 registry；否则每次启动都该回到当时的启动值，不能让一次旧默认
-// 永久遮住后来调高的默认值。
+// 显式选择单独存进 max_workers_explicit；旧 max_workers 是历史启动写回，不能再拿
+// 它当判据，否则人和旧默认永远分不开。
 const DEFAULT_MAX_WORKERS = 16;
 const START_MAX_WORKERS = Number(flag("max-workers", DEFAULT_MAX_WORKERS)) || DEFAULT_MAX_WORKERS;
 
 function workerLimit() {
-  return registry.getOrchestration(ROOT)?.max_workers ?? START_MAX_WORKERS;
+  return registry.getOrchestration(ROOT)?.max_workers_explicit ?? START_MAX_WORKERS;
 }
 
 // 日志【绝不能】走 stdout——那是 JSON-RPC 的信道，混进一行非协议内容就毁掉整个会话。
@@ -480,7 +480,7 @@ const TOOLS = [
         });
       }
       const previous = workerLimit();
-      registry.putOrchestration(ROOT, { max_workers: n });
+      registry.putOrchestration(ROOT, { max_workers_explicit: n });
       const counts = registry.countLive(ROOT);
       return {
         limit: n,
@@ -1305,7 +1305,7 @@ function waitForWorkers(workerIds) {
   });
 }
 
-// 启动登记只补编排身份与时间；把默认值写进来会让它伪装成人的显式选择。
+// 启动登记只补编排身份与时间；历史 max_workers 留在盘上但已不再是上限判据。
 try {
   registry.putOrchestration(ROOT, {
     repo: REPO,
