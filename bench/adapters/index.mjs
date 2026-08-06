@@ -43,6 +43,21 @@ export const ADAPTERS = {
       "--model", MODEL,
       "--output-format", "json",
       "--permission-mode", "bypassPermissions",
+      // 五家统一拉满 thinking。各家的档位名不同，取各自的最高档：
+      //   claude/pi 是 max（low→medium→high→xhigh→max）
+      //   codex 走 config.toml 的 model_reasoning_effort=max
+      //   kimi 走 config.toml 的 [thinking] effort=max（它只有 low/high/max）
+      //   opencode 【没有这个配置项】，只能在 model options 里透传，未必生效
+      // ⚠️ 实测网关对这个模型不认 effort 参数（chat wire 下 none/low/high 的
+      //    reasoning token 是 3130/3630/4218，落在单次采样噪声里），
+      //    所以这更多是【配置对等】而非实际调参 —— 但对等本身要做到。
+      // ⚠️ 上限是 high 不是 max：【网关只接受 low/medium/high】
+      //    （实测传 max 直接 400：level "max" not supported）。
+      //    另一个实测发现：codex 与 opencode 会把这个值【原样透传】给 API，所以会被拒；
+      //    claude / pi 传 max 却不报错 —— 说明它们没有原样透传，而是自己映射了。
+      //    也就是说「五家 effort 对等」在参数层面根本做不到，各家的处理方式不同。
+      //    这里统一取网关能接受的最高档，并把这条差异记为【记录变量】。
+      "--effort", "high",
     ],
     // ANTHROPIC_BASE_URL 与 ANTHROPIC_AUTH_TOKEN 都由 with-key.sh 注入 ——
     // 它是唯一持有密钥的地方，也是唯一知道计量代理监听在哪个端口的地方。
@@ -122,6 +137,7 @@ export const ADAPTERS = {
       "--provider", "quota-proxy",
       "--model", MODEL,
       "--mode", "json",
+      "--thinking", "high",
       "--no-session",
       prompt,
     ],

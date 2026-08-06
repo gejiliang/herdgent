@@ -1,6 +1,8 @@
 # 评测用的独立 Codex 配置。CODEX_HOME 指到这里，GG 的 ~/.codex 一个字节都不碰。
 model = "deepseek-v4-flash"
 model_provider = "quota-proxy"
+# 五家统一拉满 thinking；codex 的档位在 config 里
+model_reasoning_effort = "high"
 
 # 网关实测支持 /v1/responses（HTTP 200，返回带 reasoning 块），所以沿用 responses wire。
 # 这是【记录变量】：Codex 走的是网关的 responses 转换层，与 opencode/pi/kimi 的

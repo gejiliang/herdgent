@@ -6,6 +6,11 @@
 # 不会告诉你到底缺哪个。
 default_model = "qp/deepseek-v4-flash"
 
+# 五家统一拉满 thinking。kimi 只有 low/high/max 三档
+[thinking]
+enabled = true
+effort = "high"
+
 [providers.qp]
 type = "openai"
 base_url = "__BASE_URL__/v1"

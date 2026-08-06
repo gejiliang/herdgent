@@ -51,6 +51,36 @@ console.log("\nmessages（claude 走这条）");
   check("缓存 40", u.cached === 40);
 }
 
+console.log("\nAnthropic wire：thinking 在 content 块里，不在 usage");
+{
+  const u = extractUsage(JSON.stringify({
+    content: [
+      { type: "text", text: "answer" },
+      { type: "thinking", thinking: "x".repeat(4000) },
+    ],
+    usage: { input_tokens: 100, output_tokens: 1200 },
+  }));
+  check("从 content 估出 reasoning", u.reasoning === 1000, `实际 ${u?.reasoning}`);
+  check("标记为估算值", u.reasoningEstimated === true);
+  check("不影响 input/output", u.input === 100 && u.output === 1200);
+}
+{
+  // usage 里已有精确值时不该被估算覆盖
+  const u = extractUsage(JSON.stringify({
+    content: [{ type: "thinking", thinking: "y".repeat(8000) }],
+    usage: { input_tokens: 10, output_tokens: 50, output_tokens_details: { reasoning_tokens: 42 } },
+  }));
+  check("usage 里有精确值时以它为准", u.reasoning === 42, `实际 ${u?.reasoning}`);
+  check("精确值不打估算标记", !u.reasoningEstimated);
+}
+{
+  const u = extractUsage(JSON.stringify({
+    content: [{ type: "text", text: "no thinking here" }],
+    usage: { input_tokens: 10, output_tokens: 5 },
+  }));
+  check("没有 thinking 块时 reasoning 保持 0", u.reasoning === 0);
+}
+
 console.log("\n流式：usage 在最后几个 SSE 事件里");
 {
   const sse = [

@@ -45,7 +45,25 @@ export function extractUsage(body) {
     return null;
   }
   const u = j.usage ?? j.response?.usage;
-  return u ? normalizeUsage(u) : null;
+  if (!u) return null;
+  const norm = normalizeUsage(u);
+
+  // 【Anthropic wire 的 thinking 不在 usage 里】，而在 content 块中，
+  // 所以 claude 那一列的 reasoning 一直是 0 —— 看着像它不思考，
+  // 其实只是计量口径漏了。它的 output 中位是五家最高的，thinking 就混在里面。
+  // 这里从 thinking 块的长度估算，标记 reasoningEstimated 以示区别。
+  if (!norm.reasoning && Array.isArray(j.content)) {
+    const chars = j.content
+      .filter((c) => c?.type === "thinking" && typeof c.thinking === "string")
+      .reduce((n, c) => n + c.thinking.length, 0);
+    if (chars) {
+      // 粗估：英文约 4 字符/token。【是估算不是实测】，只用于「有没有在思考、
+      // 大概多少量级」，不要拿它跟其它家的精确值做小数点后的比较。
+      norm.reasoning = Math.round(chars / 4);
+      norm.reasoningEstimated = true;
+    }
+  }
+  return norm;
 }
 
 function normalizeUsage(u) {
