@@ -152,6 +152,11 @@ run_plan({ label: "重构认证", steps: [
 
 ## 出问题时
 
+- **`run_plan` 报步骤失败是真失败**，不是「暂时读不到」——计划已中断，按 reason 处理：
+  - `blocked` —— 卡在审批／提问，`read_worker mode=screen` 看它在问什么，用 `send_to_worker` 答
+  - `unreachable` —— 联系不上 worker，去看那个 pane（人也能直接点进去看）
+  - `still_running` —— 等满兜底上限还没干完，先 `read_worker` 看它在干什么，再决定继续等还是干预
+- **步骤因「拿不到可读产出」而失败时，活可能已经干了** —— 先 `read_worker` 看一眼产出是不是真的不在，再决定要不要重派，别直接重派。
 - **`send_to_worker` 返回 `submitted: false`** —— 消息**没送到**，别当它送到了。重发一次；
   再失败就 `read_worker mode=screen` 看那个会话怎么了。
 - **worker 跑歪了 / 跑飞了** —— `cancel_worker` 用 `mode=interrupt` 停掉当前这一轮，
