@@ -104,6 +104,8 @@ for (const taskId of taskIds) {
         // 记进能力分就是把一次网关抖动算成这家不行
         attempt: r.attempt ?? 0, infraFailure: r.infraFailure ?? false,
         stdoutBytes: r.stdoutBytes ?? null,
+        answerBytes: r.answerBytes ?? null, amplification: r.amplification ?? null,
+        tokens: r.tokens ?? null,
         usage: r.usage ?? null, filesTouched: touched,
         ...s,
         // 【不截断】。改了解析规则要能就地重判分，截断过的输出重判就是错的。

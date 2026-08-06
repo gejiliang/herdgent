@@ -122,10 +122,23 @@ async function runOnce({
     exitCode: res.code,
     timedOut: res.timedOut,
     ms,
-    // 输出总字节数本身就是个指标：同一任务下各家吐出的量差着数量级，
-    // 而这直接决定编排方要花多少代价去解析 worker 的输出。
+    // 【传输量 ≠ 内容量，两个都要记，且不能混为一谈】（栽过）：
+    // pi 单次跑出 62MB stdout，我一度把它当成「这家输出啰嗦」写进结论。
+    // 拆开一看 99.9% 是协议重复 —— 它的 --mode json 每次增量都重发【整条消息快照】
+    // 而不是 delta，message_update 的大小随消息增长（开头 ~1KB、结尾 ~9.5KB），
+    // 9219 次累积成 O(n²)。真实内容只有 90KB，和其它家同一量级。
+    //
+    // 所以：
+    //   stdoutBytes   传输量 —— 【受输出模式影响，不是能力特征】
+    //   answerBytes   最终答案的字节数 —— 五家都能算，可比
+    //   amplification 传输量 / 答案量 —— 「为了拿到这段答案要处理多少字节」，
+    //                 这才是编排方真正付的解析成本
     stdoutBytes: res.stdoutBytes,
     stdoutTruncated: res.stdoutTruncated,
+    answerBytes: Buffer.byteLength(parsed.text ?? "", "utf8"),
+    amplification: parsed.text
+      ? res.stdoutBytes / Math.max(1, Buffer.byteLength(parsed.text, "utf8"))
+      : null,
     // 【唯一可跨家比较的 token 数】，来自本地代理而非各家自报
     tokens,
     runDir,

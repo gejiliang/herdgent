@@ -32,7 +32,10 @@
       "packages/runtime-vapor/src/components/KeepAlive.ts"
     ],
     "selfReport": "The whole KeepAlive spec passes now. Let me run the broader runtime-vapor suite to make sure nothing regressed:",
-    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-48-45-793Z-codex-fe2-fe2-baseline-1"
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-48-45-793Z-codex-fe2-fe2-baseline-1",
+    "answerBytes": 111,
+    "answerBytesTruncated": false,
+    "amplification": 1858.4864864864865
   },
   {
     "task": "fe2-spread",
@@ -67,7 +70,10 @@
       "packages/runtime-core/src/scheduler.ts"
     ],
     "selfReport": "Done. The fix is in `packages/runtime-core/src/scheduler.ts`.\n\n**What changed**\n- `queuePostFlushCb`: replaced `pendingPostFlushCbs.push(...cb)` with a plain loop, so arbitrarily large callback arrays (e.g. buffered by a suspense boundary) no longer overflow the call stack.\n- `flushPostFlushCbs`: replaced `activePostFlushCbs.push(...deduped)` with the same loop-based merge, covering the nested-flush path where a huge array is merged into an active post flush.\n- This matches upstream Vue fix #15142; no test files were touched.\n\n**Verification**\n- `vp test --project 'unit*' --run packages/runtime-core/__tests__/scheduler.spec.ts` → 39/39 passed.\n- `vp test --project 'unit*' --run packages/runtime-core` → 1047/1047 passed.\n- Full `vp test --project 'unit*' --run` → 3628 passed, 6 skipped (no failures).",
-    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-52-47-495Z-codex-fe2-fe2-spread-1"
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-52-47-495Z-codex-fe2-fe2-spread-1",
+    "answerBytes": 816,
+    "answerBytesTruncated": false,
+    "amplification": 124.92156862745098
   },
   {
     "task": "fe2-hard",
@@ -103,6 +109,9 @@
       "packages/compiler-vapor/src/generators/expression.ts"
     ],
     "selfReport": "The target file passes. Since the fix touches global codegen (`generate.ts`, `expression.ts`), let me run the full compiler-vapor suite to confirm nothing else regressed.",
-    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-54-52-964Z-codex-fe2-fe2-hard-1"
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-54-52-964Z-codex-fe2-fe2-hard-1",
+    "answerBytes": 170,
+    "answerBytesTruncated": false,
+    "amplification": 838.9705882352941
   }
 ]

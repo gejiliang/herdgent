@@ -32,6 +32,9 @@
       "packages/runtime-vapor/src/components/KeepAlive.ts"
     ],
     "selfReport": "Done. The fix is in `packages/runtime-vapor/src/components/KeepAlive.ts:362`.\n\n**What changed**\n- `VaporKeepAlive`'s `onBeforeUnmount` removed non-current cached branches from `storageContainer`. But a branch that's mid-leave hasn't been moved there yet — its leave `done` is still pending, so it's sitting in its live parent. During app unmount the Transition is in `isUnmounting` state, so the leave short-circuits and calls `storageContainer.removeChild(...)` on a node that isn't there → `NotFoundError`.\n- The fix removes each cached branch from its actual parent via `findBlockBoundary(cached).parentNode`, the same pattern `pruneCacheEntry` and the HMR rerender path already use in this file. The leftover pending leave callback then becomes a harmless no-op.\n\n**How I verified**\n- `./node_modules/.bin/vp test --project 'unit*' --run packages/runtime-vapor/__tests__/components/KeepAlive.spec.ts` → 77/77 pass.\n- Full `packages/runtime-vapor` suite → 46 files, 1635 passed, 2 expected fail, 15 todo.\n- No test files touched; a temporary debug spec I created was removed.",
-    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-22-33-102Z-codex-fe2-fe2-baseline-1"
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-22-33-102Z-codex-fe2-fe2-baseline-1",
+    "answerBytes": 1086,
+    "answerBytesTruncated": false,
+    "amplification": 428.3489871086556
   }
 ]

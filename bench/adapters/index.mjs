@@ -96,9 +96,21 @@ export const ADAPTERS = {
     id: "opencode",
     bin: `${process.env.HOME}/.opencode/bin/opencode`,
     wire: "openai/chat",
-    args: ({ prompt }) => ["run", prompt, "--model", `newapi/${MODEL}`],
+    // --format json：让它和 claude/codex/pi 一样走结构化输出。
+    // 【不配这个就不能比协议开销】——第一轮我漏了它和 kimi，
+    // 结果那两家的「放大倍数 1×」其实只是纯文本模式的产物，跟另外三家不可比。
+    args: ({ prompt }) => ["run", prompt, "--model", `newapi/${MODEL}`, "--format", "json"],
     env: () => ({}),
-    extract: (stdout) => ({ text: stripAnsi(stdout).trim(), usage: null }),
+    // --format json 下是 JSONL 事件流，最终答案在 type:"text" 事件的 part.text 里。
+    // 【改了输出模式就必须同步改解析】——不改的话判分器拿到的是整坨 JSON 而不是答案，
+    // 而 smoke 那种「输出里含 PONG 就算过」的检查照样会通过，问题要到判分才暴露。
+    extract: (stdout) => {
+      const parts = [];
+      for (const e of looseJsonObjects(stripAnsi(stdout))) {
+        if (e?.type === "text" && typeof e?.part?.text === "string") parts.push(e.part.text);
+      }
+      return { text: parts.join("").trim() || stripAnsi(stdout).trim(), usage: null };
+    },
   },
 
   pi: {
@@ -148,9 +160,19 @@ export const ADAPTERS = {
     args: ({ prompt }) => [
       "--prompt", prompt,
       "--model", "qp/deepseek-v4-flash",
+      // 同 opencode：五家统一结构化输出，协议开销才有可比性
+      "--output-format", "stream-json",
     ],
     env: () => ({}),
-    extract: (stdout) => ({ text: stripAnsi(stdout).trim(), usage: null }),
+    // stream-json 下每行一个对象，答案在 role:"assistant" 的 content 里。
+    // role:"meta" 那条是「怎么恢复会话」的提示，不是答案，必须排除掉。
+    extract: (stdout) => {
+      const parts = [];
+      for (const e of looseJsonObjects(stripAnsi(stdout))) {
+        if (e?.role === "assistant" && typeof e.content === "string") parts.push(e.content);
+      }
+      return { text: parts.join("").trim() || stripAnsi(stdout).trim(), usage: null };
+    },
   },
 };
 

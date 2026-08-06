@@ -1,0 +1,40 @@
+[
+  {
+    "task": "loc-baseline",
+    "tier": "基线",
+    "harness": "opencode",
+    "wire": "openai/chat",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 37251,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 9,
+      "input": 24479,
+      "cached": 120960,
+      "output": 3196,
+      "reasoning": 2025,
+      "unparsed": 0
+    },
+    "stdoutBytes": 118142,
+    "answerBytes": 2248,
+    "amplification": 52.554270462633454,
+    "parseOk": true,
+    "formatStrict": false,
+    "total_reported": 5,
+    "truth_files": 1,
+    "file_recall": 1,
+    "file_precision": 0.2,
+    "line_recall": 1,
+    "hitFiles": [
+      "packages/runtime-vapor/src/components/KeepAlive.ts"
+    ],
+    "missedFiles": [],
+    "filesTouched": 0,
+    "rawText": "This is the Vue core repo. Let me look at the renderer-side unmount handling too.Let me check the runtime-vapor KeepAlive, which has its own implementation.The decision logic is the `onBeforeUnmount` handler in the KeepAlive component: it iterates the cache, keeps/deactivates the branch matching the current subtree, and unmounts the rest. The renderer's unmount also branches on the keep-alive shape flag to detach instead of remove.\n\n```json\n[\n  {\n    \"path\": \"packages/runtime-core/src/components/KeepAlive.ts\",\n    \"from_line\": 239,\n    \"to_line\": 253,\n    \"why\": \"When the KeepAlive component itself is being unmounted, it iterates every cached branch: the branch matching the current subTree is kept (shape flag reset and its deactivated hook invoked since it will be unmounted with the keep-alive), while all other cached branches are unmounted outright.\"\n  },\n  {\n    \"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\",\n    \"from_line\": 336,\n    \"to_line\": 372,\n    \"why\": \"Vapor's equivalent onBeforeUnmount: it matches the current key to deactivateCached (detach + reset shape flag) and removes every other cached branch into the storage container, plus handles the unmatched live current block edge case.\"\n  },\n  {\n    \"path\": \"packages/runtime-core/src/renderer.ts\",\n    \"from_line\": 2413,\n    \"to_line\": 2424,\n    \"why\": \"In the renderer's unmount routine, a vnode carrying COMPONENT_SHOULD_KEEP_ALIVE is detached (deactivated into KeepAlive's storage container) instead of being unmounted, which is the per-branch detach-vs-remove decision during unmounts.\"\n  },\n  {\n    \"path\": \"packages/runtime-core/src/components/KeepAlive.ts\",\n    \"from_line\": 189,\n    \"to_line\": 200,\n    \"why\": \"pruneCacheEntry decides between removing an obsolete cached branch (unmount it) and keeping the current active branch (only reset its keep-alive shape flag), the same keep-vs-remove choice applied when a branch is evicted.\"\n  },\n  {\n    \"path\": \"packages/runtime-core/src/components/KeepAlive.ts\",\n    \"from_line\": 168,\n    \"to_line\": 172,\n    \"why\": \"The unmount helper resets the branch's keep-alive shape flags before calling the renderer's unmount so a cached branch being dropped is truly removed rather than deactivated.\"\n  }\n]\n```",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-06T02-27-26-514Z-opencode-loc-loc-baseline-1"
+  }
+]

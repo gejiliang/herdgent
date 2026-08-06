@@ -90,6 +90,7 @@ for (const taskId of taskIds) {
         ok: r.ok, exitCode: r.exitCode, timedOut: r.timedOut, ms: r.ms,
         attempt: r.attempt ?? 0, infraFailure: r.infraFailure ?? false,
         tokens: r.tokens ?? null, stdoutBytes: r.stdoutBytes ?? null,
+        answerBytes: r.answerBytes ?? null, amplification: r.amplification ?? null,
         solved, testsIntact: touchedTests.length === 0, touchedTests,
         testPassed: tr.passed, testFailed: tr.failed, testRanOk: tr.ranOk,
         filesChanged: changed.length, changed,
