@@ -125,7 +125,7 @@ run_plan({ label: "重构认证", steps: [
 
 | 分支状态 | 处理 |
 |---|---|
-| 已合并进 base | worktree 没有独占价值了，收：`herdr worktree remove --workspace <id>` + `git branch -d <branch>` |
+| 已合并进 base | worktree 没有独占价值了，收不收看 `cleanup_after_accept`：`keep` 留着并在报告里给出收尾命令；`auto` 收 |
 | **未合并** | **绝不动**——里面是唯一的成果 |
 | 评审 FAIL / 你验收没过 | 不动，那是返工现场 |
 | 编排失败、worker 崩了 | 不动，那是排查现场 |
