@@ -20,7 +20,9 @@ import { scoreReview } from "./score.mjs";
 
 const exec = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
-const TIMEOUT_MS = 15 * 60 * 1000;
+// 超时可覆盖：claude 在 review-hard 上三次都跑满 15 分钟且 stop_reason=tool_use，
+// 也就是【还在做，被我们砍断的】。要区分「做不到」和「需要更久」，就得能放宽。
+const TIMEOUT_MS = Number(process.env.BENCH_TIMEOUT_MIN ?? 15) * 60 * 1000;
 
 // 工作副本里可能留下只读的依赖缓存（Go module cache 等），fs.rm 会 EACCES。
 // 同 lib/runner.mjs 里的 hardRemove —— 先把写权限加回来。

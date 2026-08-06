@@ -20,7 +20,10 @@ import { changedFiles } from "../constraint/score.mjs";
 
 const exec = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
-const TIMEOUT_MS = 15 * 60 * 1000;
+// 超时可覆盖（BENCH_TIMEOUT_MIN）。【超时是实验变量，不是中性设置】：
+// claude 在 review-hard 上三次跑满 15 分钟被判 0%，放宽后 784 秒完成、精确率 100% ——
+// 那个 0 反映的是「没做完」而不是「找不到」，只差 116 秒。
+const TIMEOUT_MS = Number(process.env.BENCH_TIMEOUT_MIN ?? 15) * 60 * 1000;
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
