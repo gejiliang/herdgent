@@ -105,7 +105,20 @@ herdgent 的产品形态就是跨 harness 编排（见 README），所以「不�
   参照物：omnigent 的 polly 有完整的多 agent 编排能力，而它的 `config.yaml` 里真正的代码只有「声明 6 个子 agent + 3 条 guardrail + 4 个开关」，其余整段是自然语言 prompt。SPQR v2 的 13k 行死在把同样的语义固化成了类型。
 - **spawn 必须有硬上限，且上限本身是可配置项**（GG 定）。并行会话失控是静默的，所以闸门不能没有；但每次编排的规模不一样，写死会挡住合理的大扇出。实现分两层：
   - **默认值**：`DEFAULT_MAX_WORKERS`（现为 16，对齐 Claude Code dynamic workflow 的 16 并发），启动可用 `--max-workers` 覆盖。参照：polly 每轮 6 个派发，Codex 是 `max_threads 6` / `max_depth 1`。
-  - **运行时可调**：`set_worker_limit`，范围 1–50，那个 50 才是写死在工具里的硬上界。值存 registry 的 orchestration 记录，每次 spawn 现读——所以**改默认值不追溯已启动的编排**（启动时就把当时的值固化进了那格）。
+  - **运行时可调**：`set_worker_limit`，范围 1–50，那个 50 才是写死在工具里的硬上界。值存 registry 的 `max_workers_explicit`，每次 spawn 现读——**人显式设过的才粘住**，没设过的每次启动都跟随当时的默认值。
+    ⚠️ 键名是 `max_workers_explicit` 而不是 `max_workers`，这是踩出来的：旧实现里启动登记会把已有 `max_workers` 原样写回，于是「那一格存在」既可能是人设的、也可能只是上次启动写的，两者无法区分——**改 `DEFAULT_MAX_WORKERS` 对每个跑过编排的 repo 都静默无效**（实测 registry 里 29 条记录有 24 条钉着旧默认值 6）。旧键仍留在盘上但已不是判据。
+
+## 用户配置放哪（两个 `config.json` 同名不同文件，别写错）
+
+| 文件 | 谁读 | 现有键 |
+|---|---|---|
+| `~/.herdgent/config/config.json` | herdgent 自己（`lib/config.mjs`） | `cleanup_after_accept` |
+| herdr 注入的 `HERDR_PLUGIN_CONFIG_DIR/config.json` | plugin action（`lib/profiles.mjs` 的 `sessionStartProfile`） | `session_start_profile` |
+
+同目录下还有 `profiles.json`（worker profile）与 `workflows/*.md`（自定义编排 playbook）。**`install` 不覆盖这个目录里的任何东西。**
+
+`cleanup_after_accept`：`keep`（默认）/ `auto`，决定编排验收通过并合并之后，收不收那个 worktree 容器。**消费者是编排者（prompt），不是代码**——herdgent 不自动收任何东西，MCP 通道里没有删除动词（issue #2 已拍板），收尾照旧由发起编排的会话手工跑 `herdr worktree remove` + `git branch -d`。值经 `orchestration_guide` 的返回送达。
+默认取 `keep` 的理由是代价不对称：留着只是侧栏多一个已完成的 workspace，随时能看能收；收早了不可逆，而且人回来时现场就没了。缺文件 / 坏 JSON / 缺键 / 值非法一律回 `keep`。
 
 ## 代码约定
 
