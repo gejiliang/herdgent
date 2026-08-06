@@ -56,8 +56,8 @@ function run(cmd, args) {
 }
 
 // ---- 前置依赖检查 ----
-// 逐段比数字，不是字符串比较：字符串比较会把 0.7.10 判成低于 0.7.5。
-const MIN_HERDR = [0, 7, 5];
+// 逐段比数字，不是字符串比较：字符串比较会把 0.8.10 判成低于 0.8.0。
+const MIN_HERDR = [0, 8, 0];
 const MIN_NODE = [20, 11, 0];
 
 function parseVersion(text) {

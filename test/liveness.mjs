@@ -41,35 +41,8 @@ if (mode === "agent_missing_pane_alive") {
     ok({ process_info: { shell_pid: 42, foreground_processes: [{ name: "zsh" }] } });
   }
 }
-if (mode === "agent_ghost_pane_missing") {
-  if (args[0] === "agent" && args[1] === "get") {
-    ok({ agent: { agent_status: "idle", interactive_ready: true } });
-  }
-  if (args[0] === "pane" && args[1] === "process-info") fail("pane_not_found");
-}
-if (mode === "agent_missing_pane_missing") {
-  if (args[0] === "agent" && args[1] === "get") fail("agent_not_found");
-  if (args[0] === "pane" && args[1] === "process-info") fail("pane_not_found");
-}
-if (mode === "agent_present") {
-  if (args[0] === "agent" && args[1] === "get") {
-    ok({ agent: { agent_status: "idle", interactive_ready: true } });
-  }
-  if (args[0] === "pane" && args[1] === "process-info") {
-    ok({ process_info: { shell_pid: 42, foreground_processes: [{ name: "node" }] } });
-  }
-}
-if (mode === "agent_present_pane_unavailable") {
-  if (args[0] === "agent" && args[1] === "get") {
-    ok({ agent: { agent_status: "idle", interactive_ready: true } });
-  }
-  if (args[0] === "pane" && args[1] === "process-info") fail(code);
-}
-if (mode === "agent_present_pane_unknown") {
-  if (args[0] === "agent" && args[1] === "get") {
-    ok({ agent: { agent_status: "idle", interactive_ready: true } });
-  }
-  if (args[0] === "pane" && args[1] === "process-info") fail("unexpected_pane_error");
+if (mode === "agent_present" && args[0] === "agent" && args[1] === "get") {
+  ok({ agent: { agent_status: "idle", interactive_ready: true } });
 }
 if (mode === "unknown_agent_error" && args[0] === "agent" && args[1] === "get") {
   fail("unexpected_agent_error");
@@ -190,22 +163,7 @@ function runStartupReconcile(rows, { mode = "", code = "" } = {}) {
   check("0.8.0 死亡原因来自 agent_not_found", row.death_reason === "agent_not_found_at_startup", row.death_reason);
 }
 
-// 0.7.5 的 agent 层会留下 idle/ready 幽灵，只有 pane_not_found 能揭穿它。
-{
-  const r = runStartupReconcile([{ status: "active" }], { mode: "agent_ghost_pane_missing" });
-  const row = r.registry.sessions.k0;
-  check("0.7.5 agent 幽灵而 pane 消失时标 dead", r.run.status === 0 && row.status === "dead", `${r.run.status}: ${JSON.stringify(row)}`);
-  check("0.7.5 死亡原因来自 pane_not_found", row.death_reason === "pane_not_found_at_startup", row.death_reason);
-}
-
-// 关掉整个 workspace 时两个口径都会消失，不能留一条 active + warning 的记录。
-{
-  const r = runStartupReconcile([{ status: "active" }], { mode: "agent_missing_pane_missing" });
-  const row = r.registry.sessions.k0;
-  check("agent 与 pane 都消失时标 dead", r.run.status === 0 && row.status === "dead", `${r.run.status}: ${JSON.stringify(row)}`);
-}
-
-// start 的就绪等待超时不代表 agent 一定没起来；两个口径都活着才把 failed 救回 active。
+// start 的就绪等待超时不代表 agent 一定没起来；查到 agent 就得把 failed 救回 active。
 {
   const r = runStartupReconcile([{ status: "failed" }], { mode: "agent_present" });
   const row = r.registry.sessions.k0;
@@ -219,29 +177,12 @@ function runStartupReconcile(rows, { mode = "", code = "" } = {}) {
   check("未知 agent 错误不猜死", r.run.status === 0 && row.status === "active" && row.reconcile_warning?.includes("unexpected_agent_error"), JSON.stringify(row));
 }
 
-{
-  const r = runStartupReconcile([{ status: "active" }], { mode: "agent_present_pane_unknown" });
-  const row = r.registry.sessions.k0;
-  check("未知 pane 错误不猜死", r.run.status === 0 && row.status === "active" && row.reconcile_warning?.includes("unexpected_pane_error"), JSON.stringify(row));
-}
-
 // herdr 整体不可达时，任何一条的结论都不可信；整张表必须逐字不动。
 for (const code of ["server_not_running", "spawn_failed"]) {
   const r = runStartupReconcile([{ status: "active" }, { status: "failed" }], { code });
   const reason = code === "server_not_running" ? "herdr server is not running" : "herdr executable is unavailable";
   check(`startup reconcile 在 ${code} 时中止`, r.run.status === 0 && r.run.stdout.includes(reason), `${r.run.status}: ${r.run.stdout}`);
   check(`startup reconcile 在 ${code} 时不改 registry`, r.after === r.before);
-}
-
-// agent 能查到也不足以说明 herdr 整体可达；第二个口径不可达时仍须原样中止。
-for (const code of ["server_not_running", "spawn_failed"]) {
-  const r = runStartupReconcile([{ status: "active" }, { status: "failed" }], {
-    mode: "agent_present_pane_unavailable",
-    code,
-  });
-  const reason = code === "server_not_running" ? "herdr server is not running" : "herdr executable is unavailable";
-  check(`pane 查询在 ${code} 时中止`, r.run.status === 0 && r.run.stdout.includes(reason), `${r.run.status}: ${r.run.stdout}`);
-  check(`pane 查询在 ${code} 时不改 registry`, r.after === r.before);
 }
 
 rmSync(home, { recursive: true, force: true });
