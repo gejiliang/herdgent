@@ -18,6 +18,7 @@ function check(name, ok, detail = "") {
 const home = mkdtempSync(join(tmpdir(), "hg-liveness-"));
 mkdirSync(join(home, "state"), { recursive: true });
 process.env.HERDGENT_HOME = home;
+process.env.HERDGENT_STATE_DIR = join(home, "state");
 // 结构性隔离：这个进程必须根本连不上真 herdr。
 process.env.HERDR_SOCKET_PATH = join(home, "no-such-herdr.sock");
 const fakeHerdr = join(home, "fake-herdr.mjs");

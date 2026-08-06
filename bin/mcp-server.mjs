@@ -25,6 +25,7 @@ if (stateDirArg) process.env.HERDGENT_STATE_DIR = stateDirArg;
 
 const registry = await import("../lib/registry.mjs");
 const { workflowsRoot } = await import("../lib/paths.mjs");
+const { cleanupAfterAccept } = await import("../lib/config.mjs");
 const {
   startManagedSession,
   startAgentInPane,
@@ -102,8 +103,8 @@ const REPO = flag("repo", process.cwd());
 // set_worker_limit 改（用户一句「这次最多开 3 个」即可）。值存在 registry 里，
 // 每次 spawn 现读，所以改完立刻生效。
 // 默认值 2026-08-05 由 6 提到 16，对齐 Claude Code dynamic workflow 的 16 并发。
-// 注意【旧编排不会跟着变】：启动时把当时的值固化进 registry 的 orchestration 记录，
-// 之后 workerLimit() 优先读那一格，所以改默认只影响新起的编排。
+// 显式选择才存进 registry；否则每次启动都该回到当时的启动值，不能让一次旧默认
+// 永久遮住后来调高的默认值。
 const DEFAULT_MAX_WORKERS = 16;
 const START_MAX_WORKERS = Number(flag("max-workers", DEFAULT_MAX_WORKERS)) || DEFAULT_MAX_WORKERS;
 
@@ -335,7 +336,7 @@ const TOOLS = [
         const name = String(args.workflow).replace(/[^a-zA-Z0-9._-]/g, "");
         const path = join(workflowsRoot(), `${name}.md`);
         try {
-          return { workflow: name, guide: readFileSync(path, "utf8") };
+          return { workflow: name, guide: readFileSync(path, "utf8"), cleanup_after_accept: cleanupAfterAccept() };
         } catch {
           throw Object.assign(
             new Error(`no workflow '${name}' (available: ${listWorkflows().join(", ") || "none"})`),
@@ -352,7 +353,12 @@ const TOOLS = [
             code: "guide_unreadable",
           });
         }
-        return { mode: args.mode, container: m.container, guide: readFileSync(path, "utf8") };
+        return {
+          mode: args.mode,
+          container: m.container,
+          guide: readFileSync(path, "utf8"),
+          cleanup_after_accept: cleanupAfterAccept(),
+        };
       }
 
       return {
@@ -363,6 +369,7 @@ const TOOLS = [
           source: m.source,
         })),
         available_workflows: listWorkflows(),
+        cleanup_after_accept: cleanupAfterAccept(),
         next: "call orchestration_guide again with mode='rex' or mode='fox' to read that playbook",
       };
     },
@@ -1298,10 +1305,9 @@ function waitForWorkers(workerIds) {
   });
 }
 
-// 登记本次编排的规模上限，让 list_workers / 事后排查都能看到当时选了多少。
+// 启动登记只补编排身份与时间；把默认值写进来会让它伪装成人的显式选择。
 try {
   registry.putOrchestration(ROOT, {
-    max_workers: registry.getOrchestration(ROOT)?.max_workers ?? START_MAX_WORKERS,
     repo: REPO,
     started_at: new Date().toISOString(),
   });
