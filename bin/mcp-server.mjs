@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
 import { watchPaneStatus, readAgentScreen } from "../lib/events.mjs";
 import { tryHerdr, herdrText } from "../lib/herdr.mjs";
+import { readPlanOutputWithRetry } from "./plan-output.mjs";
 
 const argv = process.argv.slice(2);
 function flag(name, fallback = null) {
@@ -1100,26 +1101,26 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
     const outputByWorkerId = new Map();
     const missingOutput = [];
     for (const worker of spawned) {
-      try {
-        const output = readWorkerResult(worker.slug);
-        if (!(output.assistant_turns > 0) || !String(output.text ?? "").trim()) {
+      const read = await readPlanOutputWithRetry(() => readWorkerResult(worker.slug));
+      if (!read.ready) {
+        if (read.error) {
+          missingOutput.push({
+            worker_id: worker.slug,
+            title: worker.title,
+            reason:
+              `worker '${worker.title}' reached a terminal state but its output is unavailable (${read.error.code || "unknown"}) — ` +
+              `use read_worker mode=screen for ${worker.slug}`,
+          });
+        } else {
           missingOutput.push({
             worker_id: worker.slug,
             title: worker.title,
             reason: `worker '${worker.title}' reached a terminal state but produced no readable output — use read_worker mode=screen for ${worker.slug}`,
           });
-          continue;
         }
-        outputByWorkerId.set(worker.slug, output);
-      } catch (e) {
-        missingOutput.push({
-          worker_id: worker.slug,
-          title: worker.title,
-          reason:
-            `worker '${worker.title}' reached a terminal state but its output is unavailable (${e.code || "unknown"}) — ` +
-            `use read_worker mode=screen for ${worker.slug}`,
-        });
+        continue;
       }
+      outputByWorkerId.set(worker.slug, read.output);
     }
     if (missingOutput.length) {
       setStageStatus(stage.tabId, stageLabel, "failed");

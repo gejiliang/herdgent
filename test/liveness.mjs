@@ -24,9 +24,30 @@ const fakeHerdr = join(home, "fake-herdr.mjs");
 writeFileSync(
   fakeHerdr,
   `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const mode = process.env.HG_FAKE_HERDR_MODE || "";
 const code = process.env.HG_FAKE_HERDR_CODE || "pane_not_found";
-process.stderr.write(JSON.stringify({ id: "fake", error: { code, message: "fake herdr error" } }) + "\\n");
-process.exit(1);
+function ok(result) {
+  process.stdout.write(JSON.stringify({ id: "fake", result }) + "\\n");
+  process.exit(0);
+}
+function fail(errorCode) {
+  process.stderr.write(JSON.stringify({ id: "fake", error: { code: errorCode, message: "fake herdr error" } }) + "\\n");
+  process.exit(1);
+}
+if (mode === "agent_missing_pane_alive") {
+  if (args[0] === "agent" && args[1] === "get") fail("agent_not_found");
+  if (args[0] === "pane" && args[1] === "process-info") {
+    ok({ process_info: { shell_pid: 42, foreground_processes: [{ name: "zsh" }] } });
+  }
+}
+if (mode === "agent_present" && args[0] === "agent" && args[1] === "get") {
+  ok({ agent: { agent_status: "idle" } });
+}
+if (mode === "unknown_agent_error" && args[0] === "agent" && args[1] === "get") {
+  fail("unexpected_agent_error");
+}
+fail(code);
 `,
 );
 chmodSync(fakeHerdr, 0o755);
@@ -43,6 +64,24 @@ function seed(rows) {
     join(home, "state", "registry.json"),
     JSON.stringify({ version: 2, sessions, orchestrations: { R: { root: "R", max_workers: 6 } } }),
   );
+}
+
+function runStartupReconcile(rows, { mode = "", code = "" } = {}) {
+  seed(rows);
+  const before = readFileSync(join(home, "state", "registry.json"), "utf8");
+  const run = spawnSync(process.execPath, [resolve(import.meta.dirname, "../bin/reconcile.mjs")], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HERDGENT_HOME: home,
+      HERDR_SOCKET_PATH: join(home, "no-such-herdr.sock"),
+      HERDR_BIN_PATH: fakeHerdr,
+      HG_FAKE_HERDR_MODE: mode,
+      HG_FAKE_HERDR_CODE: code,
+    },
+  });
+  const after = readFileSync(join(home, "state", "registry.json"), "utf8");
+  return { run, before, after, registry: JSON.parse(after) };
 }
 
 // ---- 什么算占位 ----
@@ -116,23 +155,34 @@ function seed(rows) {
   check("常规对账不改 registry", after === before);
 }
 
-// [[startup]] 对账也必须在 server_not_running 时原样保留 registry。
+// [[startup]] 只认 agent：0.8.0 重启后 pane 会被 shell 恢复，但 agent 已经没了。
 {
-  seed([{ status: "active" }, { status: "failed" }]);
-  const before = readFileSync(join(home, "state", "registry.json"), "utf8");
-  const run = spawnSync(process.execPath, [resolve(import.meta.dirname, "../bin/reconcile.mjs")], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      HERDGENT_HOME: home,
-      HERDR_SOCKET_PATH: join(home, "no-such-herdr.sock"),
-      HERDR_BIN_PATH: fakeHerdr,
-      HG_FAKE_HERDR_CODE: "server_not_running",
-    },
-  });
-  const after = readFileSync(join(home, "state", "registry.json"), "utf8");
-  check("startup reconcile 在 server_not_running 时中止", run.status === 0 && run.stdout.includes("herdr server is not running"), `${run.status}: ${run.stdout}`);
-  check("startup reconcile 不改 registry", after === before);
+  const r = runStartupReconcile([{ status: "active" }], { mode: "agent_missing_pane_alive" });
+  const row = r.registry.sessions.k0;
+  check("pane 还在而 agent 消失时标 dead", r.run.status === 0 && row.status === "dead", `${r.run.status}: ${JSON.stringify(row)}`);
+  check("startup 死亡原因来自 agent_not_found", row.death_reason === "agent_not_found_at_startup", row.death_reason);
+}
+
+// start 的就绪等待超时不代表 agent 一定没起来；查到 agent 就得把 failed 救回 active。
+{
+  const r = runStartupReconcile([{ status: "failed" }], { mode: "agent_present" });
+  const row = r.registry.sessions.k0;
+  check("failed 但 agent 还在时救回", r.run.status === 0 && row.status === "active" && !!row.revived_at, JSON.stringify(row));
+}
+
+// 不认识的 agent 错误不是死亡证据，保留记录并留下排查线索。
+{
+  const r = runStartupReconcile([{ status: "active" }], { mode: "unknown_agent_error" });
+  const row = r.registry.sessions.k0;
+  check("未知 agent 错误不猜死", r.run.status === 0 && row.status === "active" && row.reconcile_warning?.includes("unexpected_agent_error"), JSON.stringify(row));
+}
+
+// herdr 整体不可达时，任何一条的结论都不可信；整张表必须逐字不动。
+for (const code of ["server_not_running", "spawn_failed"]) {
+  const r = runStartupReconcile([{ status: "active" }, { status: "failed" }], { code });
+  const reason = code === "server_not_running" ? "herdr server is not running" : "herdr executable is unavailable";
+  check(`startup reconcile 在 ${code} 时中止`, r.run.status === 0 && r.run.stdout.includes(reason), `${r.run.status}: ${r.run.stdout}`);
+  check(`startup reconcile 在 ${code} 时不改 registry`, r.after === r.before);
 }
 
 rmSync(home, { recursive: true, force: true });
