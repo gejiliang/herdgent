@@ -189,6 +189,12 @@ run_preset(preset, inputs)          跑
 
 这是 herdgent 存在的理由：单家编排 Claude Code 自己的 dynamic workflow 就够了。
 
+**#6（commit `1e35a0d`）带来三处编排者可见的行为变化**——动词表没变（仍是十四个），变的是行为契约：
+
+- `run_plan` 不再把「没等到」标成完成：`still_running` / `unreachable` 现在与 `blocked` 一样中断计划，各自给不同的 reason（此前是等满 30 分钟兜底上限后把这一步标 ✓ 继续跑）
+- 拿不到可读产出的步骤直接失败，不再往下游喂空文本
+- spawn 后会确认首轮真的开始，没开始补发一次，仍不行则抛 `opening_prompt_unconfirmed`
+
 | | |
 |---|---|
 | `bin/mcp-server.mjs` | 编排工具通道，orchestrator 的 stdio 子进程 |
@@ -245,11 +251,14 @@ pi 的模型经 quota-proxy 覆盖 Anthropic / OpenAI / Google / Moonshot / 阿�
 
 ## 为什么需要对账（一个具体例子）
 
-**前提**（herdr 0.7.5 实测，0.8.0 改了 headless 恢复行为，**尚未重验**）：server 重启后只恢复布局、不恢复运行时——agent 进程全被杀，但 `agent list` 仍然报它们 `idle` + `interactive_ready: true`，而同一个 pane 在 `pane read` 下是 `pane_not_found`。**只看 agent 接口的编排器会对着尸体发指令。**
+server 重启后的 headless 恢复行为随 herdr 版本不同，两版都实测过：
 
-**结论**（两种恢复行为下都成立，不依赖上面的前提）：`[[startup]]` 对账的判据是 pane 侧的 `process-info`——agent 真被恢复就探到活的，真死了就 `pane_not_found`，实测能正确判死。
+- **0.7.5**：只恢复布局、不恢复运行时——agent 进程全被杀，但 `agent list` 仍报它们 `idle` + `interactive_ready: true`（pane 侧报 `pane_not_found`）。**只看 agent 接口的编排器会对着尸体发指令。**
+- **0.8.0**：反过来了——agent 接口诚实了（`agent_not_found`），但 pane 被恢复（shell 重新起来），`pane process-info` 对死 agent **成功返回**。
 
-细节见 [docs/findings-2026-07-31.md](docs/findings-2026-07-31.md)（0.7.5 实测）与 [docs/findings-2026-08-05.md](docs/findings-2026-08-05.md)（0.8.0 行为变化）。
+所以 0.7.5 时代定的判据「`process-info` 探得活就算活」在 0.8.0 下失效：实测 `bin/reconcile.mjs` 把一个确认已死的 agent 判成活的，幽灵记录永久占住并发额度。**判据要问「这个 pane 上还有我们的 agent 吗」，不是「这个 pane 还在吗」。**
+
+细节见 [docs/findings-2026-07-31.md](docs/findings-2026-07-31.md)（0.7.5 实测）与 [docs/findings-2026-08-05.md](docs/findings-2026-08-05.md) 第五节（0.8.0 实测）。
 
 ## 许可
 
