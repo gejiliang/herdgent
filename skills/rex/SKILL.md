@@ -109,11 +109,23 @@ run_plan({ label: "重构认证", steps: [
 1. **跨厂商评审 PASS**
 2. **你自己验收过**——不是转发评审结论，是你核对过成果确实是要的东西
 
-两道都过了，你才可以合并并收掉容器。判据是结构性的：
+两道都过了才可以合并。合并之后收不收容器，看配置 `cleanup_after_accept`——
+`orchestration_guide` 的返回里会告诉你当前生效值：
+
+- **`keep`（默认）**：**合并之后不收容器。** 人回到侧栏时要能看到现场——
+  留着只是侧栏多一个已完成的 workspace，随时能看能收；收早了不可逆。
+  报告里给足他自己看、自己收所需的一切：
+  - workspace id、分支名、checkout 路径
+  - 两条现成命令：`herdr worktree remove --workspace <id> --force`
+    和 `git branch -d <branch>`
+  - 一句「你可以去侧栏看，看完告诉我我来收，或者自己收」
+- **`auto`**：合并完就收，跟以前一样。
+
+判据是结构性的，**与配置无关**——配置只影响「已合并且验收通过」这一格是收还是留：
 
 | 分支状态 | 处理 |
 |---|---|
-| 已合并进 base | worktree 没有独占价值了，收：`herdr worktree remove --workspace <id>` + `git branch -d <branch>` |
+| 已合并进 base | worktree 没有独占价值了，收不收看 `cleanup_after_accept`：`keep` 留着并在报告里给出收尾命令；`auto` 收 |
 | **未合并** | **绝不动**——里面是唯一的成果 |
 | 评审 FAIL / 你验收没过 | 不动，那是返工现场 |
 | 编排失败、worker 崩了 | 不动，那是排查现场 |
@@ -121,6 +133,12 @@ run_plan({ label: "重构认证", steps: [
 **MCP 工具里没有任何能删东西的动词，这是刻意的**（`cancel_worker` 连
 `terminate` 都不删）。收尾要用 git 和 herdr 的命令自己做——多这一步摩擦是好事，
 它保证「删」永远是一个明确的决定，而不是某个工具的副作用。
+
+默认 `keep` 会留下容器，跑十轮就堆十个 workspace 和十个分支。
+**每次新编排开始前先报一句**「上次还有 N 个已合并但未收的容器」，让人顺手决定收不收——
+否则「不自动收」会退化成「永远不收」，侧栏迟早没法看。查法：`list_workers`
+能看到历史 worker 的 `workspace_id` 与 `branch`，`git branch --merged main`
+能判哪些分支已合并；对得上、已合并、且不在本次编排里的，就是可以收的那些。
 
 ### 评审结论要筛，不能盲转
 

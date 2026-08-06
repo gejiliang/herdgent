@@ -25,6 +25,7 @@ if (stateDirArg) process.env.HERDGENT_STATE_DIR = stateDirArg;
 
 const registry = await import("../lib/registry.mjs");
 const { workflowsRoot } = await import("../lib/paths.mjs");
+const { cleanupAfterAccept } = await import("../lib/config.mjs");
 const {
   startManagedSession,
   startAgentInPane,
@@ -102,13 +103,13 @@ const REPO = flag("repo", process.cwd());
 // set_worker_limit 改（用户一句「这次最多开 3 个」即可）。值存在 registry 里，
 // 每次 spawn 现读，所以改完立刻生效。
 // 默认值 2026-08-05 由 6 提到 16，对齐 Claude Code dynamic workflow 的 16 并发。
-// 注意【旧编排不会跟着变】：启动时把当时的值固化进 registry 的 orchestration 记录，
-// 之后 workerLimit() 优先读那一格，所以改默认只影响新起的编排。
+// 显式选择单独存进 max_workers_explicit；旧 max_workers 是历史启动写回，不能再拿
+// 它当判据，否则人和旧默认永远分不开。
 const DEFAULT_MAX_WORKERS = 16;
 const START_MAX_WORKERS = Number(flag("max-workers", DEFAULT_MAX_WORKERS)) || DEFAULT_MAX_WORKERS;
 
 function workerLimit() {
-  return registry.getOrchestration(ROOT)?.max_workers ?? START_MAX_WORKERS;
+  return registry.getOrchestration(ROOT)?.max_workers_explicit ?? START_MAX_WORKERS;
 }
 
 // 日志【绝不能】走 stdout——那是 JSON-RPC 的信道，混进一行非协议内容就毁掉整个会话。
@@ -335,7 +336,7 @@ const TOOLS = [
         const name = String(args.workflow).replace(/[^a-zA-Z0-9._-]/g, "");
         const path = join(workflowsRoot(), `${name}.md`);
         try {
-          return { workflow: name, guide: readFileSync(path, "utf8") };
+          return { workflow: name, guide: readFileSync(path, "utf8"), cleanup_after_accept: cleanupAfterAccept() };
         } catch {
           throw Object.assign(
             new Error(`no workflow '${name}' (available: ${listWorkflows().join(", ") || "none"})`),
@@ -352,7 +353,12 @@ const TOOLS = [
             code: "guide_unreadable",
           });
         }
-        return { mode: args.mode, container: m.container, guide: readFileSync(path, "utf8") };
+        return {
+          mode: args.mode,
+          container: m.container,
+          guide: readFileSync(path, "utf8"),
+          cleanup_after_accept: cleanupAfterAccept(),
+        };
       }
 
       return {
@@ -363,6 +369,7 @@ const TOOLS = [
           source: m.source,
         })),
         available_workflows: listWorkflows(),
+        cleanup_after_accept: cleanupAfterAccept(),
         next: "call orchestration_guide again with mode='rex' or mode='fox' to read that playbook",
       };
     },
@@ -473,7 +480,7 @@ const TOOLS = [
         });
       }
       const previous = workerLimit();
-      registry.putOrchestration(ROOT, { max_workers: n });
+      registry.putOrchestration(ROOT, { max_workers_explicit: n });
       const counts = registry.countLive(ROOT);
       return {
         limit: n,
@@ -1298,10 +1305,9 @@ function waitForWorkers(workerIds) {
   });
 }
 
-// 登记本次编排的规模上限，让 list_workers / 事后排查都能看到当时选了多少。
+// 启动登记只补编排身份与时间；历史 max_workers 留在盘上但已不再是上限判据。
 try {
   registry.putOrchestration(ROOT, {
-    max_workers: registry.getOrchestration(ROOT)?.max_workers ?? START_MAX_WORKERS,
     repo: REPO,
     started_at: new Date().toISOString(),
   });
