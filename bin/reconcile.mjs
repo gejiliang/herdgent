@@ -2,13 +2,12 @@
 // Herdgent [[startup]] 钩子：server 启动 / live handoff 后对账。
 //
 // 为什么必须有这一步（实测 2026-07-31，herdr 0.7.5；2026-08-05，0.8.0）：
-// 0.7.5 重启只恢复【布局】不恢复【运行时】——workspace / pane 还在、agent 进程已死；
-// `agent list` / `agent get` 却仍报 idle + interactive_ready，而 pane 侧会报 pane_not_found。
+// 0.7.5 重启只恢复【布局】不恢复【运行时】——agent 进程已死，但 `agent get` 仍报
+// idle + interactive_ready；同一个 pane 的 process-info 才报 pane_not_found。
 //
-// 0.8.0 同样会让 agent 消失，但恢复后的 pane 自己起了一个 zsh：`pane process-info`
-// 成功、`pane read` 为空，真实的 claude 进程不在；此时 `agent list` 是空、`agent get`
-// 返回 agent_not_found。pane 存在只能证明布局和 shell 被恢复，不能证明我们的 agent 还在。
-// 所以对账必须问 agent，而不是把 pane 的壳当作 worker 的存活证据。
+// 0.8.0 的裂口恰好反过来：agent get 是 agent_not_found，但恢复后的 pane 自己起了 zsh，
+// process-info 成功、pane read 为空，真实 claude 进程不在。两版都不能只信其中一个口径：
+// 死 = agent_not_found，或 agent 尚在但 pane_not_found；活必须两个查询都成功。
 import { tryHerdr } from "../lib/herdr.mjs";
 import * as registry from "../lib/registry.mjs";
 
@@ -21,7 +20,7 @@ import * as registry from "../lib/registry.mjs";
 //   starting —— spawn 走到一半进程挂了，永远停在这个状态，还占着并发额度
 //   failed   —— 【可能是误判】。agent start 的就绪等待超时会抛错，而那时 agent
 //                往往已经在跑了；早先直接记 failed，于是一个活着的 agent 不在
-//                任何回收路径里，静默烧额度。这里探到 pane 还活着就【救回来】。
+//                任何回收路径里，静默烧额度。这里两个口径都确认还在才【救回来】。
 const WATCHED = new Set(["active", "starting", "failed"]);
 const snapshot = registry.list().filter((s) => WATCHED.has(s.status));
 if (snapshot.length === 0) {
@@ -42,18 +41,35 @@ for (const s of snapshot) {
     process.exit(0);
   }
 
-  if (agent.ok) {
-    alive += 1;
-    // 记着 failed 但 agent 还在 = 当初判错了。救回来，否则它永远不在回收路径里。
-    if (s.status === "failed") verdicts.push({ key: s.key, revive: true });
+  if (agent.code === "agent_not_found") {
+    verdicts.push({ key: s.key, dead: "agent_not_found" });
     continue;
   }
 
-  if (agent.code === "agent_not_found") {
-    verdicts.push({ key: s.key, dead: true });
-  } else {
+  if (!agent.ok) {
     // 没见过的错误码：不猜。留在 active 并标注，让人来看。
     verdicts.push({ key: s.key, warning: `${agent.code}: ${agent.message}` });
+    continue;
+  }
+
+  const pane = tryHerdr(["pane", "process-info", "--pane", s.pane_id]);
+
+  if (!pane.ok && (pane.code === "spawn_failed" || pane.code === "server_not_running")) {
+    // 两个口径任一不可达都不能推断单条记录死亡，否则会把整张 registry 误判为空。
+    const reason = pane.code === "server_not_running" ? "herdr server is not running" : "herdr executable is unavailable";
+    console.log(`herdgent: ${reason} (${pane.message}); reconcile aborted, registry untouched`);
+    process.exit(0);
+  }
+
+  if (pane.code === "pane_not_found") {
+    verdicts.push({ key: s.key, dead: "pane_not_found" });
+  } else if (pane.ok) {
+    alive += 1;
+    // 两个查询都确认还在的 failed 才是误判，救回来，否则它永远不在回收路径里。
+    if (s.status === "failed") verdicts.push({ key: s.key, revive: true });
+  } else {
+    // 没见过的错误码：不猜。留在 active 并标注，让人来看。
+    verdicts.push({ key: s.key, warning: `${pane.code}: ${pane.message}` });
   }
 }
 
@@ -76,7 +92,7 @@ const applied = registry.update((reg) => {
     } else if (v.dead) {
       row.status = "dead";
       row.died_detected_at = new Date().toISOString();
-      row.death_reason = "agent_not_found_at_startup";
+      row.death_reason = `${v.dead}_at_startup`;
       buried += 1;
     } else {
       row.reconcile_warning = v.warning;

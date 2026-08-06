@@ -8,8 +8,8 @@ description = "Meta-harness for Herdr: starts, tracks and orchestrates managed a
 min_herdr_version = "0.7.5"
 platforms = ["macos"]
 
-# server 启动与 live handoff 后跑一次：herdr 只恢复布局不恢复运行时，
-# 会留下报 idle/ready 的幽灵 agent 记录，必须在这里对账。
+# server 启动与 live handoff 后跑一次：0.7.5 会留下 idle/ready 的 agent 幽灵但 pane 消失，
+# 0.8.0 则会恢复只跑 zsh 的 pane 但 agent 消失；两版都必须在这里双口径对账。
 [[startup]]
 command = ["node", "bin/reconcile.mjs"]
 

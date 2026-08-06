@@ -35,7 +35,7 @@ try {
   const server = readFileSync(resolve(import.meta.dirname, "../bin/mcp-server.mjs"), "utf8");
   check(
     "runPlan 在终态后使用重试器",
-    server.includes("await readPlanOutputWithRetry(() => readWorkerResult(worker.slug))"),
+    /await\s+readPlanOutputWithRetry\(\s*\(\)\s*=>\s*readWorkerResult\(worker\.slug\)\s*\)/.test(server),
   );
 } finally {
   rmSync(home, { recursive: true, force: true });
