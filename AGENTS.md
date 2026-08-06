@@ -76,6 +76,19 @@ herdgent 是 **herdr plugin + 外部进程**，不 fork herdr、不改 herdr 核
 
 注意这不 fork 是**纯工程判断**：herdr 自 0.8.0 起与 herdgent 同为 Apache-2.0（之前为 AGPL），许可证从来只是附带的约束、不是论证本身。
 
+### 只跟最新版 herdr，不做向后兼容（GG 定）
+
+支持下限就是当前用的那一版（`herdr-plugin.toml` 的 `min_herdr_version` 与 `bin/install.mjs` 的 `MIN_HERDR` 是真源，两处必须同步）。上游行为变了就**重验并跟进**，不留兼容分支——多一个口径就是多一条要维护、且几乎跑不到的路径。
+
+**但判据必须标明版本**。教训是实测出来的：herdr 0.7.5 → 0.8.0 之间，server 重启后的恢复行为**整个反转**了——
+
+| | `agent get`（死 agent） | `pane process-info`（死 agent） |
+|---|---|---|
+| 0.7.5 | 幽灵：仍报 `idle` + `interactive_ready` | `pane_not_found` |
+| 0.8.0 | 诚实：`agent_not_found` | **成功返回**（pane 被恢复成活 shell） |
+
+于是 0.7.5 时代定的「`process-info` 探得活就算活」在 0.8.0 下把死 agent 判成了活的（FIXME #1 的病复发）。**换判据前先问它依赖上游的哪条行为、那条行为在哪个版本上验过**。实测见 [`docs/findings-2026-08-05.md`](docs/findings-2026-08-05.md) 第五节。
+
 ## 编排层的边界
 
 herdgent 的产品形态就是跨 harness 编排（见 README），所以「不做编排」不是纪律。纪律是**编排的语义不进 herdgent 的代码**。
