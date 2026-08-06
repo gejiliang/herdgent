@@ -59,8 +59,14 @@ rm -rf /tmp/hg-dev-state
 | GG 用的 | `~/.herdgent`（`bin/install.mjs` 同步过去） | `~/.herdgent/state` |
 | 开发 | 本仓库 | `/tmp/hg-dev-state`（命名 session 里设 `HERDGENT_STATE_DIR`） |
 
-**改完代码不会自动生效**——MCP 配置里存的是 `~/.herdgent` 的绝对路径。
-要让 GG 用上得显式 `npm run install-local`，这一步是故意的：不然半成品会直接砸到他正在用的会话上。
+**改完代码不会自动生效**——MCP 配置里存的是 `~/.herdgent` 的绝对路径，得跑 `npm run install-local` 同步。
+
+**保持 `~/.herdgent` 最新是默认动作**（GG 定，2026-08-06）：改动合并进 main 之后就装，不用问。但有两个前提，缺一不可——它们正是「显式安装」这一步当初存在的理由：
+
+1. **已经合并进 main**。半成品不装，否则会直接砸到 GG 正在用的会话上。
+2. **没有活着的编排**（`list_workers` 的 `live` 为 0）。install 会替换 `~/.herdgent` 下的运行时文件，而**正在跑的 MCP server 就是从那里加载的**——编排跑到一半装，等于抽掉它脚下的地板，只能靠 herdr CLI 手工收场。
+
+装完还有一层：**已经开着的会话不会加载新版本**。MCP server 是 harness 进程的 stdio 子进程，`/clear`、`/new` 都不重启它，必须完全退出 harness 再起。所以「装了」不等于「当前会话生效了」，报告时要说清这条。
 
 隔离靠两条轴，不需要第三条（换 plugin id 那条已作废，见上）：
 1. **named session + `HERDGENT_STATE_DIR`** —— 隔离 workspace/pane/agent 与整张 registry。
