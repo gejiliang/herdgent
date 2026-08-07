@@ -14,15 +14,26 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const HERE = dirname(dirname(fileURLToPath(import.meta.url)));
+// lib/ 的上一级就是 bench/ —— 别再拼一次 "bench"（踩过：路径拼成 bench/bench/，
+// 读不到文件，而 catch 把错误吞了，于是【排除规则一条都没生效却毫无征兆】，
+// 5 次配置造成的假失败照样进了统计）。
+const BENCH = dirname(dirname(fileURLToPath(import.meta.url)));
+const RULES_FILE = join(BENCH, "exclude.json");
 
 let RULES = null;
 async function rules() {
   if (RULES) return RULES;
   try {
-    RULES = JSON.parse(await readFile(join(HERE, "bench", "exclude.json"), "utf8")).rules ?? [];
-  } catch {
-    RULES = [];
+    RULES = JSON.parse(await readFile(RULES_FILE, "utf8")).rules ?? [];
+  } catch (e) {
+    // 【不静默】。读不到规则文件意味着该排除的都会被算进统计，
+    // 那比少个功能严重得多 —— 数字照样出来，只是错的。
+    if (e.code === "ENOENT") {
+      RULES = [];
+      console.error(`[exclude] 没有 ${RULES_FILE}，本次不排除任何记录`);
+    } else {
+      throw new Error(`[exclude] 规则文件读不了：${RULES_FILE}\n${e.message}`);
+    }
   }
   return RULES;
 }
