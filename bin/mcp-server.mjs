@@ -204,7 +204,7 @@ const TOOLS = [
         profile: {
           type: "string",
           description:
-            "Which profile to run this worker on (see list_profiles), e.g. 'impl-gpt' or 'review-opus'. This is the only way to pick harness/model/permissions — there is no per-call override. For cross-vendor review, dispatch the same task to profiles on different vendors.",
+            "Which profile to run this worker on (see list_profiles), e.g. 'impl-kimi' or 'review-opus'. This is the only way to pick harness/model/permissions — there is no per-call override. For cross-vendor review, dispatch the same task to profiles on different vendors.",
         },
         task: { type: "string", description: "The full instruction handed to the agent as its opening prompt" },
         purpose: {
@@ -455,7 +455,7 @@ const TOOLS = [
   {
     name: "list_profiles",
     description:
-      "List the worker profiles you can dispatch. A profile is the ONLY way to say what a worker runs on — it carries the harness, model, prompt and permissions as one named unit, and you cannot override any of it per call. Pick the role you need; if none fits, say so to the human rather than trying to assemble one.",
+      "List the worker profiles you can dispatch. A profile is the ONLY way to say what a worker runs on — it carries the harness, model, prompt and permissions as one named unit, and you cannot override any of it per call. Each entry states its `vendor` — that field, not the profile name or the harness, is what 'a different vendor' means when you pair an implementer with a reviewer. Pick the role you need; if none fits, say so to the human rather than trying to assemble one.",
     inputSchema: { type: "object", properties: {}, required: [] },
     handler: async () => ({
       profiles: Object.entries(allProfiles()).map(([name, p]) => ({ name, ...p })),

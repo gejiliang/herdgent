@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// 跨 harness 验收：同一套动词能不能同时驱动 claude 和 codex。
+// 跨 harness 验收：同一套动词能不能同时驱动两家不同的 CLI。
+//
+// 【codex 一侧现在验不了】：ChatGPT 订阅到期，没有 profile 指向 codex（见 lib/profiles.mjs）。
+// harness 适配还在、ping 仍报三家，但能真跑起来的只有 claude 与 pi，所以下面派的是这两家。
+// 订阅回来、profile 加回去之后，把 codex 那一格补进 cases 即可。
 //
 // 【需要真的 herdr server 和两家 CLI】，不进 npm test：
 //   HERDR_SOCKET_PATH=~/.config/herdr/sessions/herdgentdev/herdr.sock \
@@ -77,7 +81,7 @@ try {
 
   const profiles = await callTool("list_profiles");
   const names = (profiles.profiles || []).map((p) => p.name);
-  check("内置 profile 可列出", names.includes("impl-gpt") && names.includes("review-kimi"), names.join(","));
+  check("内置 profile 可列出", names.includes("impl-kimi") && names.includes("review-kimi"), names.join(","));
   // 模型知识不进 herdgent：profile 不带任何可用性判断，模型名原样透传给网关。
   const kimi = (profiles.profiles || []).find((p) => p.name === "review-kimi");
   check("profile 不夹带模型可用性判断", !("model_available" in (kimi ?? {})), JSON.stringify(Object.keys(kimi ?? {})));
@@ -88,11 +92,11 @@ try {
   const noProfile = await callTool("spawn_worker", { title: "nope1", task: "x" });
   check("不给 profile 被拒", noProfile.isError, noProfile.error);
 
-  // 三条通道各起一个。profile 是唯一入口——测试也必须走编排者该走的路，
-  // 否则测的就不是真实路径。
+  // 每条能跑的通道各起一个。profile 是唯一入口——测试也必须走编排者该走的路，
+  // 否则测的就不是真实路径。带分支的那一格用实现档，因为只有它 wants_branch。
   const cases = [
     { profile: "review-opus", harness: "claude", title: "cross-claude", branch: null, token: "CLAUDE_SIDE_OK" },
-    { profile: "impl-gpt", harness: "codex", title: "cross-codex", branch: "hg-cross-codex", token: "CODEX_SIDE_OK" },
+    { profile: "impl-kimi", harness: "pi", title: "cross-pi-impl", branch: "hg-cross-pi", token: "PI_IMPL_OK" },
     { profile: "review-kimi", harness: "pi", title: "cross-pi", branch: null, token: "PI_SIDE_OK" },
   ];
   for (const c of cases) {
@@ -110,7 +114,7 @@ try {
 
   const listed = await callTool("list_workers");
   const kinds = (listed.workers || []).map((w) => w.harness).sort();
-  check("登记表记录了各自的 harness", JSON.stringify(kinds) === '["claude","codex","pi"]', JSON.stringify(kinds));
+  check("登记表记录了各自的 harness", JSON.stringify(kinds) === '["claude","pi","pi"]', JSON.stringify(kinds));
 
   // profile 是唯一真源：这四个维度即便显式传了也必须被忽略。
   const override = await callTool("spawn_worker", {
@@ -129,7 +133,7 @@ try {
   for (const w of spawned) {
     await callTool("wait_for_worker", { worker_ids: [w.worker_id] }).catch(() => {});
     let r = await callTool("read_worker", { worker_id: w.worker_id });
-    // codex 的 session id 由 herdr 上报，可能比 spawn 晚几秒
+    // pi 的 session path 由 herdr 上报，可能比 spawn 晚几秒
     for (let i = 0; i < 6 && r.isError; i += 1) {
       await new Promise((s) => setTimeout(s, 5000));
       r = await callTool("read_worker", { worker_id: w.worker_id });
@@ -142,7 +146,7 @@ try {
     check(`${w.harness} 结果标了 harness`, r.harness === w.harness, r.harness);
   }
 
-  // 提交语义：claude 要补 enter，codex 自动提交——同一个工具必须都能确认送达
+  // 提交语义：claude 要补 enter，pi 自动提交——同一个工具必须都能确认送达
   for (const w of spawned) {
     const sent = await callTool("send_to_worker", {
       worker_id: w.worker_id,

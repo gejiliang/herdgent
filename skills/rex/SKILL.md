@@ -31,7 +31,7 @@ rex 的每次编排都开一个 **git worktree workspace**，有自己的分支�
 
 ```
 run_plan({ label: "重构认证", steps: [
-  { id:"impl",   title:"impl",   profile:"impl-gpt", task:"..." },
+  { id:"impl",   title:"impl",   profile:"impl-kimi", task:"..." },
   { id:"review", title:"review", profile:["review-opus","review-kimi"],
     attach:"diff_of:impl", task:"审查 {{attached}} …" },
 ]})
@@ -66,8 +66,8 @@ run_plan({ label: "重构认证", steps: [
 
 | 实现用了 | 就别派 |
 |---|---|
-| `impl-gpt`（OpenAI） | `review-gpt` |
 | `impl-kimi`（Moonshot） | `review-kimi` |
+| `impl-glm`（智谱） | —— 没有同厂评审，随便配 |
 | `impl-sonnet`（Anthropic） | `review-opus` |
 
 `review-opus` 有个额外限制：它**跑不了任何命令**（只读靠禁掉 Bash 实现），
@@ -79,22 +79,26 @@ run_plan({ label: "重构认证", steps: [
 **只能整包选，不能按次覆盖**——`spawn_worker` 里传 `harness` / `model` 会被忽略。
 
 实现（S 级，思考等级拉满）：
-- `impl-gpt` —— GPT-5.6 Terra，原生 Codex ← **主力**
 - `impl-kimi` —— Kimi Code K3 256K ← **主力**
+- `impl-glm` —— GLM-5.2（智谱） ← **主力**
 - `impl-sonnet` —— Claude Sonnet 5，原生 Claude Code ← **fallback，见下**
 
-评审（S+ 级，只读，思考等级拉满）：
-- `review-opus` —— Claude Opus 5，原生 Claude Code
-- `review-gpt` —— GPT-5.6 Sol，原生 Codex
+评审（只读，思考等级拉满）：
+- `review-opus` —— Claude Opus 5，原生 Claude Code（S+）
 - `review-kimi` —— Kimi Code K3（1M 上下文）
+- `review-deepseek` —— DeepSeek V4 Pro（第三家厂商，A 级）
 
 探索：
 - `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，用在大扇出粗筛
 
+> **GPT 全线下线**（2026-08-12 起）：ChatGPT 订阅到期不续，`impl-gpt` / `review-gpt` 已删。
+> 网关那侧的 gpt-5.6-* 兑的是同一份凭据，一起断了，**没有绕路**。
+> 后果是评审档只剩 `review-opus` 一个 S+，别再指望「两个 S+ 互审」这种排法。
+
 ### `impl-sonnet` 是 fallback，不是第三个主力
 
 **Claude 订阅是最金贵的那个池子**，留给评审和需求分析／设计（后者是你自己在干）。
-实现一律派 `impl-gpt` 和 `impl-kimi`——**只有这两个都不可用时才派 `impl-sonnet`**。
+实现一律派 `impl-kimi` 和 `impl-glm`——**只有这两个都不可用时才派 `impl-sonnet`**。
 
 要更多并行算力，就多派前两个（同一个 profile 可以派好几份，给它们互不重叠的活），
 不要因为「再来一家厂商更好」就把 `impl-sonnet` 拉进常规编排。

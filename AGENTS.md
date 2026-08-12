@@ -3,7 +3,8 @@
 > **本文件是本项目章程的唯一真源**，`CLAUDE.md` 只是指向它的软链——改章程改本文件。
 > 只写「在这个目录里干活才需要的东西」；harness 独有的落点写进末尾对应小节。全局配置 `~/.agents/AGENTS.md` 已注入，不复述。
 > 项目是什么、现状如何见 [`README.md`](README.md)；实测踩过的坑见 [`docs/findings-2026-07-31.md`](docs/findings-2026-07-31.md)（0.7.5 时代）与 [`docs/findings-2026-08-05.md`](docs/findings-2026-08-05.md)（0.8.0 时代，含许可证变更与新的可观测面）；
-> 两个编排参照物的实测画像见 [`docs/orchestrators-compared.md`](docs/orchestrators-compared.md)。
+> 两个编排参照物的实测画像见 [`docs/orchestrators-compared.md`](docs/orchestrators-compared.md)；
+> 哪些模型现在真的能跑（以及为什么 OpenAI 整条线不在表里了）见 [`docs/model-availability-2026-08-12.md`](docs/model-availability-2026-08-12.md)。
 
 ## 不可逆约束
 

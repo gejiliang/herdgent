@@ -50,15 +50,25 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
   );
   check("Sonnet 5 走原生 claude", p["impl-sonnet"].harness === "claude", `${p["impl-sonnet"].harness} ${p["impl-sonnet"].model}`);
   check("Opus 5 走原生 claude", p["review-opus"].harness === "claude", p["review-opus"].harness);
-  check("GPT 实现走原生 codex", p["impl-gpt"].harness === "codex", p["impl-gpt"].harness);
 
   // 硬约束 2：Claude 订阅留给评审与需求分析，所以两个实现【主力】不许烧它。
   // impl-sonnet 是 fallback，允许走 claude，但必须在 description 里说清楚——
   // 「什么时候派」是调度语义，活在 skill 里，引擎不认识它。
   check(
     "两个实现主力不烧 Claude 订阅",
-    p["impl-gpt"].harness !== "claude" && p["impl-kimi"].harness !== "claude",
-    `${p["impl-gpt"].harness} ${p["impl-kimi"].harness}`,
+    p["impl-kimi"].harness !== "claude" && p["impl-glm"].harness !== "claude",
+    `${p["impl-kimi"].harness} ${p["impl-glm"].harness}`,
+  );
+
+  // 跨厂商评审是 rex 的硬规则，前提是【每个实现者都能找到一个别家的评审】。
+  // 厂商不能从模型名或 harness 推——review-kimi 与 review-deepseek 都走 pi 却是两家，
+  // sonnet 与 opus 名字不同却同属 Anthropic——所以 profile 显式标 vendor。
+  // GPT 下线那次差点把评审侧砍到只剩 Claude 一家，这条守住那个下限。
+  check("每个 profile 都标了厂商", Object.values(p).every((x) => !!x.vendor), Object.entries(p).filter(([, x]) => !x.vendor).map(([n]) => n).join(",") || "全标了");
+  check(
+    "每个实现者都有别家厂商的评审可配",
+    impls.every(([, i]) => reviews.some(([, r]) => r.vendor !== i.vendor)),
+    `impl ${impls.map(([, x]) => x.vendor).join(",")} / review ${reviews.map(([, x]) => x.vendor).join(",")}`,
   );
   check(
     "唯一走 claude 的实现者标着 fallback",

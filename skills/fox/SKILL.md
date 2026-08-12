@@ -38,7 +38,8 @@ run_plan({ label:"调研缓存方案", container:"tab", steps: [
 `list_profiles`。研究只用只读的那些：
 
 - `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，适合大扇出粗筛
-- `review-opus` / `review-gpt` / `review-kimi` —— 要判断力时用，各走一家厂商，思考等级拉满
+- `review-opus` / `review-kimi` / `review-deepseek` —— 要判断力时用，各走一家厂商，思考等级拉满
+  （原来还有个 `review-gpt`，ChatGPT 订阅到期后已删，2026-08-12）
   （`review-opus` 跑不了命令，只能读文件——扇出调研里它看不了 `git log` 这类东西）
 
 profile 打包了 harness、模型、思考等级和权限，**只能整包选**，

@@ -59,7 +59,7 @@ const { allPresets, getPreset, render, missingInputs } = await import(
     join(home, "config", "presets.json"),
     JSON.stringify({
       presets: {
-        "impl-and-review": { steps: [{ id: "only", profile: "impl-gpt", task: "{{task}}" }] },
+        "impl-and-review": { steps: [{ id: "only", profile: "impl-kimi", task: "{{task}}" }] },
         "my-own": { description: "自定义的", steps: [{ id: "a", profile: "explore-deepseek", task: "x" }] },
       },
     }),

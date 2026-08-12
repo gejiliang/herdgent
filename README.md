@@ -55,7 +55,7 @@ herdr 的模型跟编排结构天然对齐——worktree 就是带 git provenanc
 Space 侧栏
 └─ myrepo                    orchestrator 待在这里（不写代码，不需要 worktree）
    ├─ auth-refactor          worker：worktree workspace + claude
-   ├─ fix-sse-error          worker：worktree workspace + codex
+   ├─ fix-sse-error          worker：worktree workspace + pi
    └─ review-auth-refactor   worker：评审，pi
 ```
 
@@ -198,7 +198,7 @@ run_preset(preset, inputs)          跑
 | | |
 |---|---|
 | `bin/mcp-server.mjs` | 编排工具通道，orchestrator 的 stdio 子进程 |
-| `bin/session-start.mjs` | 起一个独立的受管会话（plugin action）；也走 profile，用哪个由插件配置 `config.json` 的 `session_start_profile` 决定，默认 `impl-gpt` |
+| `bin/session-start.mjs` | 起一个独立的受管会话（plugin action）；也走 profile，用哪个由插件配置 `config.json` 的 `session_start_profile` 决定，默认 `impl-kimi` |
 | `bin/reconcile.mjs` | `[[startup]]` 对账 |
 | `bin/hook-claude.mjs` | Claude Code SessionStart 钩子 |
 | `lib/worker.mjs` | worker 生命周期：起、命名、隔离、回收 |
@@ -218,8 +218,8 @@ run_preset(preset, inputs)          跑
 `set_worker_limit` · `list_profiles` · `orchestration_guide` · `herdr_status` · `ping`
 `list_presets` · `run_preset` · `run_plan`
 
-派活只能用 **profile**（`impl-gpt` / `impl-kimi` / `impl-sonnet` / `review-opus` / `review-gpt` /
-`review-kimi` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
+派活只能用 **profile**（`impl-kimi` / `impl-glm` / `impl-sonnet` / `review-opus` / `review-kimi` /
+`review-deepseek` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
 
 两条硬约束定住了这张表：
@@ -228,8 +228,13 @@ run_preset(preset, inputs)          跑
    不能拿来跑 agent。所以 `impl-sonnet` / `review-opus` 都是原生 Claude Code，经 pi 的
    profile 里不会出现任何 Claude 模型——有测试守着。
 2. **Claude 订阅是最金贵的池子**，优先留给评审与需求分析／设计（后者是编排者自己在干）。
-   所以实现主力是 `impl-gpt`（ChatGPT 订阅）和 `impl-kimi`（网关），`impl-sonnet` 只是
+   所以实现主力是 `impl-kimi`（Kimi Code K3 256K）和 `impl-glm`（GLM-5.2），`impl-sonnet` 只是
    **fallback**：前两个都不可用时才派。这是调度语义，写在 skill 里，引擎不认识它。
+
+**OpenAI 整条线现在是断的**（2026-08-12 实测，见
+[`docs/model-availability-2026-08-12.md`](docs/model-availability-2026-08-12.md)）：ChatGPT 订阅
+到期不续，原生 codex 与网关上的 `gpt-5.6-*` 兑的是同一份凭据，一起没了。`impl-gpt` / `review-gpt`
+两个 profile 已删，`lib/harness/codex.mjs` 保留——订阅回来加回两条数据即可，代码不用改。
 
 herdgent **不维护模型清单**——本地任何一份都会骗人（实测同一时刻 pi 的静态目录、
 网关活目录、`--list-models` 输出、网关白名单四者互不一致）。profile 里的模型名原样透传，
@@ -243,11 +248,13 @@ herdgent **不维护模型清单**——本地任何一份都会骗人（实测�
 | | 能指定模型 | 提交语义 | session 引用 | 特别之处 |
 |---|---|---|---|---|
 | `claude` | ❌ 只跑自家 | 须补 enter | 自装钩子 | |
-| `codex` | ❌ 只跑自家 | 自动提交 | herdr 报 id | 目录信任必须注入 |
-| `pi` | ✅ **18 个模型** | 自动提交 | herdr 报 **path** | 只读用工具白名单，比 YOLO 精确 |
+| `codex` | ❌ 只跑自家 | 自动提交 | herdr 报 id | 目录信任必须注入；**现无凭据，没有 profile 指向它** |
+| `pi` | ✅ 网关上有什么就能跑什么 | 自动提交 | herdr 报 **path** | 只读用工具白名单，比 YOLO 精确 |
 
-pi 的模型经 quota-proxy 覆盖 Anthropic / OpenAI / Google / Moonshot / 阿里 / 智谱 / DeepSeek 七家——
-真正的跨厂商评审靠它。
+pi 的模型经 quota-proxy 覆盖 Anthropic / Moonshot / 智谱 / DeepSeek / MiniMax / 豆包等——
+真正的跨厂商评审靠它。**具体有哪些只能问网关 `/v1/models`**，本地任何一份清单都会骗人
+（实测同一时刻 pi 静态目录里有 6 个网关已下线的名字，而网关认的 `kimicode-k3-256k`、
+`ark-glm-5.2` 又不在静态目录里）。
 
 ## 为什么需要对账（一个具体例子）
 

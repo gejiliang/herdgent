@@ -296,7 +296,7 @@ try {
     },
     calls: [
       { key: "status", name: "herdr_status" },
-      { key: "spawn", name: "spawn_worker", arguments: { title: "must-not-start", profile: "impl-gpt", task: "must never run" } },
+      { key: "spawn", name: "spawn_worker", arguments: { title: "must-not-start", profile: "impl-kimi", task: "must never run" } },
     ],
   });
   check("herdr_status 说明 server 没跑", noServer.calls.status.isError && noServer.calls.status.error === "server_not_running" && noServer.calls.status.message.includes("herdr server is not running"), JSON.stringify(noServer.calls.status));
