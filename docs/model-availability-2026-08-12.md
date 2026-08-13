@@ -66,13 +66,22 @@ curl -s -H "Authorization: Bearer $KEY" https://newapi.gejiliang.com/v1/models
 ## 四、由此改了什么
 
 - 删 `impl-gpt`、`review-gpt`。**`lib/harness/codex.mjs` 一行没动**——适配是动词，凭据是配置。
-- 实现主力：`impl-kimi`（Moonshot）+ 新增 `impl-glm`（智谱 GLM-5.2）。`impl-sonnet` 仍是 fallback。
+- 实现主力：`impl-kimi`（Moonshot）+ `impl-sonnet`（Anthropic）；新增的 `impl-glm`（智谱 GLM-5.2）是 fallback。
+  **主力这一格当天改过两版**：先按旧的「Claude 订阅不做实现」排成 kimi + glm，GG 随即改成
+  kimi + sonnet、glm 降为 fallback。理由是 GPT 走后没有第二个够格的非 Claude 主力，
+  与其拿 A 级的 GLM 当主力，不如把 Sonnet 提上来——旧排法的前提（有两个 S 级非 Claude 实现者）
+  已经不存在了。代价见下。
 - 评审第三家：新增 `review-deepseek`（DeepSeek V4 Pro）顶掉 `review-gpt` 的位置。
 - `DEFAULT_SESSION_START_PROFILE`：`impl-gpt` → `impl-kimi`。原来选它的理由是「原生订阅，
-  比经网关少一层依赖」，这条理由已经作废——现在两个主力都在网关后面。
+  比经网关少一层依赖」，这条理由已经作废（OpenAI 的原生通道没了）。现在选 `impl-kimi`
+  是因为独立会话长时间挂着，用它不占 `review-opus` 那个池子。
 - profile 新增显式 `vendor` 字段。跨厂商评审看的是厂商，而厂商既推不出（sonnet 与 opus 同属
   Anthropic）也不等于 harness（review-kimi 与 review-deepseek 都走 pi 却是两家）。
   `test/profiles.mjs` 现在守着「每个实现者都有别家厂商的评审可配」——这次差点掉进的坑。
 
 **评审档整体降了半级**：GPT 走后，网关上剩下的 S+ 全是 Claude 模型，而 Claude 做 agent 只能走
 原生通道，所以评审侧只剩 `review-opus` 一个 S+，第三家是 A 级。订阅回来就该把 S+ 补回去。
+
+**再叠一层**：`impl-sonnet` 提为主力之后，派它的那一路连唯一那个 S+ 也用不上——同厂商不能评
+自己家写的东西，只能配 `review-kimi` 或 `review-deepseek`。所以**难判断的活优先给 `impl-kimi`**，
+把 `review-opus` 留给它。这条写在 `skills/rex/SKILL.md` 里，代码不认识。

@@ -218,7 +218,7 @@ run_preset(preset, inputs)          跑
 `set_worker_limit` · `list_profiles` · `orchestration_guide` · `herdr_status` · `ping`
 `list_presets` · `run_preset` · `run_plan`
 
-派活只能用 **profile**（`impl-kimi` / `impl-glm` / `impl-sonnet` / `review-opus` / `review-kimi` /
+派活只能用 **profile**（`impl-kimi` / `impl-sonnet` / `impl-glm` / `review-opus` / `review-kimi` /
 `review-deepseek` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
 
@@ -227,9 +227,10 @@ run_preset(preset, inputs)          跑
 1. **Claude 模型做 agent 只能走原生通道。** 网关（quota-proxy）代理的 Claude 只适合简单调用，
    不能拿来跑 agent。所以 `impl-sonnet` / `review-opus` 都是原生 Claude Code，经 pi 的
    profile 里不会出现任何 Claude 模型——有测试守着。
-2. **Claude 订阅是最金贵的池子**，优先留给评审与需求分析／设计（后者是编排者自己在干）。
-   所以实现主力是 `impl-kimi`（Kimi Code K3 256K）和 `impl-glm`（GLM-5.2），`impl-sonnet` 只是
-   **fallback**：前两个都不可用时才派。这是调度语义，写在 skill 里，引擎不认识它。
+2. **实现主力是 `impl-kimi`（Kimi Code K3 256K）和 `impl-sonnet`（Claude Sonnet 5）**，
+   `impl-glm`（GLM-5.2）是 **fallback**：前两个都不可用时才派。这是调度语义，写在 skill 里，
+   引擎不认识它。代价要知道：`review-opus` 是唯一的 S+ 评审，跟 Sonnet 同厂商评不了自己家，
+   所以**派 `impl-sonnet` 的那一路只能拿 A 级评审**——难判断的活优先给 `impl-kimi`。
 
 **OpenAI 整条线现在是断的**（2026-08-12 实测，见
 [`docs/model-availability-2026-08-12.md`](docs/model-availability-2026-08-12.md)）：ChatGPT 订阅

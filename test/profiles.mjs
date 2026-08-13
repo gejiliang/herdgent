@@ -5,7 +5,8 @@
 //   1. profile 是「用什么跑」的唯一真源。能被按次覆盖的话，分工就管不住——
 //      编排者可以绕过人定的分工自己挑模型，而谁干活、谁评审、烧谁的额度
 //      恰恰是人要掌握的那一层。
-//   2. Claude 订阅只用于评审。它是三个池子里最金贵的，实现再急也不烧它。
+//   2. 主力与 fallback 的分工必须在 profile 数据里标出来，且只标一个 fallback。
+//      派谁不派谁是 skill 的事，但「哪个是备胎」不能靠编排者猜。
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,14 +52,12 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
   check("Sonnet 5 走原生 claude", p["impl-sonnet"].harness === "claude", `${p["impl-sonnet"].harness} ${p["impl-sonnet"].model}`);
   check("Opus 5 走原生 claude", p["review-opus"].harness === "claude", p["review-opus"].harness);
 
-  // 硬约束 2：Claude 订阅留给评审与需求分析，所以两个实现【主力】不许烧它。
-  // impl-sonnet 是 fallback，允许走 claude，但必须在 description 里说清楚——
-  // 「什么时候派」是调度语义，活在 skill 里，引擎不认识它。
-  check(
-    "两个实现主力不烧 Claude 订阅",
-    p["impl-kimi"].harness !== "claude" && p["impl-glm"].harness !== "claude",
-    `${p["impl-kimi"].harness} ${p["impl-glm"].harness}`,
-  );
+  // 硬约束 2：主力与 fallback 的分工必须写在 description 里。
+  // 「什么时候派」是调度语义，活在 skill 里，引擎不认识 fallback 这个概念——
+  // 所以这里只能验「标没标」，验不了「派没派对」。
+  // 【2026-08-12 起主力是 impl-kimi + impl-sonnet】，fallback 是 impl-glm。
+  // 原来那条「实现主力不许烧 Claude 订阅」随之作废：GPT 下线后没有第二个够格的
+  // 非 Claude 主力，GG 决定把 Sonnet 提上来。
 
   // 跨厂商评审是 rex 的硬规则，前提是【每个实现者都能找到一个别家的评审】。
   // 厂商不能从模型名或 harness 推——review-kimi 与 review-deepseek 都走 pi 却是两家，
@@ -70,11 +69,11 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
     impls.every(([, i]) => reviews.some(([, r]) => r.vendor !== i.vendor)),
     `impl ${impls.map(([, x]) => x.vendor).join(",")} / review ${reviews.map(([, x]) => x.vendor).join(",")}`,
   );
-  check(
-    "唯一走 claude 的实现者标着 fallback",
-    /FALLBACK/i.test(p["impl-sonnet"].description),
-    p["impl-sonnet"].description.slice(0, 60),
-  );
+  // 恰好一个 fallback：零个的话「都不可用时派谁」没有答案，两个的话编排者得自己
+  // 排优先级——而排优先级正是这里要替他定死的事。
+  const fallbacks = impls.filter(([, x]) => /FALLBACK/i.test(x.description ?? ""));
+  check("实现档里恰好一个标着 fallback", fallbacks.length === 1, fallbacks.map(([n]) => n).join(",") || "一个都没标");
+  check("fallback 是 impl-glm", fallbacks[0]?.[0] === "impl-glm", String(fallbacks[0]?.[0]));
 
   // 评审必须是只读的，否则「评审」会去改代码——踩过。
   check("所有 review-* 都是只读", reviews.every(([, x]) => x.read_only === true), `${reviews.length} 个`);

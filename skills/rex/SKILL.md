@@ -62,13 +62,14 @@ run_plan({ label: "重构认证", steps: [
 **实现者不评审自己的活，reviewer 要换一家厂商。** 不同厂商的模型盲区不同，
 同一家评自己写的东西会一起漏掉同一类问题。这是 herdgent 存在的理由。
 
-只读是各家引擎级强制的，不是靠嘱咐。配对时**看模型厂商，不是看 profile 名**：
+只读是各家引擎级强制的，不是靠嘱咐。配对时**看 `list_profiles` 里的 `vendor` 字段**，
+不是看 profile 名，也不是看 harness——`review-kimi` 与 `review-deepseek` 都走 pi 却是两家：
 
 | 实现用了 | 就别派 |
 |---|---|
-| `impl-kimi`（Moonshot） | `review-kimi` |
-| `impl-glm`（智谱） | —— 没有同厂评审，随便配 |
-| `impl-sonnet`（Anthropic） | `review-opus` |
+| `impl-kimi`（moonshot） | `review-kimi` |
+| `impl-sonnet`（anthropic） | `review-opus` ← 于是这一路只剩 A 级评审 |
+| `impl-glm`（zhipu） | —— 没有同厂评审，随便配 |
 
 `review-opus` 有个额外限制：它**跑不了任何命令**（只读靠禁掉 Bash 实现），
 所以派它必须 `attach: "diff_of:<step>"` 把改动喂进去，否则它看不到你要它评什么。
@@ -80,8 +81,8 @@ run_plan({ label: "重构认证", steps: [
 
 实现（S 级，思考等级拉满）：
 - `impl-kimi` —— Kimi Code K3 256K ← **主力**
-- `impl-glm` —— GLM-5.2（智谱） ← **主力**
-- `impl-sonnet` —— Claude Sonnet 5，原生 Claude Code ← **fallback，见下**
+- `impl-sonnet` —— Claude Sonnet 5，原生 Claude Code ← **主力**
+- `impl-glm` —— GLM-5.2（智谱） ← **fallback，见下**
 
 评审（只读，思考等级拉满）：
 - `review-opus` —— Claude Opus 5，原生 Claude Code（S+）
@@ -95,13 +96,16 @@ run_plan({ label: "重构认证", steps: [
 > 网关那侧的 gpt-5.6-* 兑的是同一份凭据，一起断了，**没有绕路**。
 > 后果是评审档只剩 `review-opus` 一个 S+，别再指望「两个 S+ 互审」这种排法。
 
-### `impl-sonnet` 是 fallback，不是第三个主力
+### `impl-glm` 是 fallback，不是第三个主力
 
-**Claude 订阅是最金贵的那个池子**，留给评审和需求分析／设计（后者是你自己在干）。
-实现一律派 `impl-kimi` 和 `impl-glm`——**只有这两个都不可用时才派 `impl-sonnet`**。
+实现一律派 `impl-kimi` 和 `impl-sonnet`——**只有这两个都不可用时才派 `impl-glm`**。
 
 要更多并行算力，就多派前两个（同一个 profile 可以派好几份，给它们互不重叠的活），
-不要因为「再来一家厂商更好」就把 `impl-sonnet` 拉进常规编排。
+不要因为「再来一家厂商更好」就把 `impl-glm` 拉进常规编排。
+
+**派 `impl-sonnet` 就意味着那一路拿不到 S+ 评审**：`review-opus` 是唯一的 S+，
+但它跟 Sonnet 同厂商，评不了自己家写的东西，只能配 `review-kimi` 或 `review-deepseek`。
+所以**判断难度高的那部分活优先给 `impl-kimi`**，把 `review-opus` 留给它。
 
 没有合适的 profile 就**跟人说**，别试图拼一个出来。要长期加一个角色，
 写进 `~/.herdgent/config/profiles.json`——那是留痕的，临时覆盖不是。
