@@ -2,3 +2,14 @@ node_modules/
 *.log
 .DS_Store
 .claude/worktrees/
+
+# AI 助手：只共享团队配置，运行时与凭证一律不入库
+.claude/*
+!.claude/agents/
+!.claude/commands/
+!.claude/rules/
+!.claude/skills/
+.claude/worktrees/
+.claude/**/.env
+.claude/settings.local.json
+CLAUDE.local.md
