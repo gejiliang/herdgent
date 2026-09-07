@@ -1,0 +1,5 @@
+{
+  "$comment": "评测用的独立 Claude Code 配置。HOME 隔离后 CC 只读这里，GG 的 ~/.claude 不受影响。刻意留空：任何 hook / statusLine / 自动记忆都是混淆变量。",
+  "includeCoAuthoredBy": false,
+  "cleanupPeriodDays": 1
+}

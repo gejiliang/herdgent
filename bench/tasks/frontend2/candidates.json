@@ -1,0 +1,401 @@
+[
+ {
+  "pr": 15092,
+  "title": "fix(runtime-core): skip lazy hydration for detached roots",
+  "date": "2026-07-16",
+  "src": [
+   "packages/runtime-core/src/apiAsyncComponent.ts"
+  ],
+  "tests": [
+   "packages/runtime-core/__tests__/hydration.spec.ts"
+  ],
+  "src_lines": 2,
+  "test_lines": 54,
+  "base": "8801e51ece2bf0c115f3ba31279e0230010d1114",
+  "head": "b467cdf4965694d8a3bfebd5349c0c695edb69d1",
+  "body": "close #15091\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved lazy hydration reliability by skipping hydration when the target element is not connected (e.g., removed before hydration starts).\n  * Prevented unnecessary async component loading and avoided errors for detached SSR content.\n\n* **Tests**\n  * Added an SSR "
+ },
+ {
+  "pr": 15190,
+  "title": "fix(runtime-vapor): unmount leaving KeepAlive cache entries",
+  "date": "2026-08-02",
+  "src": [
+   "packages/runtime-vapor/src/components/KeepAlive.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/components/KeepAlive.spec.ts"
+  ],
+  "src_lines": 4,
+  "test_lines": 34,
+  "base": "2d0e207175ea02a7eb938b38452e4215d59cb9c7",
+  "head": "e8a4e6dd9bd7523961c1d6a979110671019712c7",
+  "body": "- remove cached branches from their actual parent during teardown\r\n- preserve logical unmount when a cached branch is already detached\r\n- cover KeepAlive unmount during a pending deactivation leave\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved KeepAlive behavior when switching cached components during transitions"
+ },
+ {
+  "pr": 15140,
+  "title": "fix(runtime-vapor): sync transition hooks on interop update",
+  "date": "2026-07-21",
+  "src": [
+   "packages/runtime-vapor/src/vdomInterop.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 4,
+  "test_lines": 96,
+  "base": "567c515bd0f2897269e0b44c1f1c2c5c2fdb12a5",
+  "head": "7597caf9838c6164a61535139759be48f035561b",
+  "body": "another one \ud83e\udd26 \r\n\r\nnavigating away from a vapor page under `<Transition mode=\"out-in\">` (in Nuxt, `NuxtPage` with an out-in page transition, which also wraps the page in `<Suspense>`) deadlocks: the old page is removed but the incoming branch never mounts, and `afterLeave` never runs.\r\n\r\nI think this is because a vapor block's transition hooks are applied once at mount, but `setTransitionHooks` ass"
+ },
+ {
+  "pr": 15154,
+  "title": "fix(custom-element): preserve nested async mount order",
+  "date": "2026-07-24",
+  "src": [
+   "packages/runtime-dom/src/apiCustomElement.ts"
+  ],
+  "tests": [
+   "packages/runtime-dom/__tests__/customElement.spec.ts"
+  ],
+  "src_lines": 7,
+  "test_lines": 112,
+  "base": "b5f8518379b77c3b62a7a9d2b52f6c76cda09bd5",
+  "head": "badd411c3ef101c325cc56423ed6b7143a983943",
+  "body": "Closes #15153\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n## Summary by CodeRabbit\n\n- **Bug Fixes**\n  - Improved reliability for nested custom elements that resolve asynchronously, ensuring ancestor-first mounting even with out-of-order completion.\n  - Ensured asynchronously defined descendants don\u2019t mount when their host is disconnected before resolution, preventin"
+ },
+ {
+  "pr": 15114,
+  "title": "fix(runtime-core): restore SSR setup state when handling async setup result",
+  "date": "2026-07-19",
+  "src": [
+   "packages/runtime-core/src/component.ts"
+  ],
+  "tests": [
+   "packages/server-renderer/__tests__/ssrWatch.spec.ts"
+  ],
+  "src_lines": 7,
+  "test_lines": 69,
+  "base": "fa2885d8c48768d26f1666a01bd540ffe3b20f9b",
+  "head": "31ff39d9eda7a7168628db587fbcc12f2ae220ff",
+  "body": "fix https://github.com/vuejs/core/issues/15113\r\n\r\nthis should fix a problem where regular watchers were being created on the server for Options API components with `async setup()`\r\n\r\nand also a potential memory leak since SSR never unmounts and such a watcher is never stopped... if it depends on request-outliving state, it retains the whole component instance and through it the whole app\n\n<!-- Thi"
+ },
+ {
+  "pr": 15139,
+  "title": "fix(runtime-vapor): defer mount hooks to owning suspense boundary",
+  "date": "2026-07-21",
+  "src": [
+   "packages/runtime-core/src/index.ts",
+   "packages/runtime-vapor/src/component.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 8,
+  "test_lines": 40,
+  "base": "39b1ddf5b9dfec07de8e05d96e8845117c54edc5",
+  "head": "43494635e8b393809b1d5aae51688b3b11c53abf",
+  "body": "one more!\r\n\r\na vapor component mounted into a pending `<Suspense>` runs its `onMounted`/`onActivated` hooks straight away on the next post-flush, while it's still in the boundary's hidden container. VDOM defers these and runs them after the boundary resolves, once the branch is in the real tree, so the two disagree on ordering (and on which branch the hook sees).\r\n\r\nas far as I can tell this is be"
+ },
+ {
+  "pr": 15175,
+  "title": "fix(compiler-sfc): avoid walking cached type references",
+  "date": "2026-07-29",
+  "src": [
+   "packages/compiler-sfc/src/script/resolveType.ts"
+  ],
+  "tests": [
+   "packages/compiler-sfc/__tests__/compileScript.spec.ts"
+  ],
+  "src_lines": 10,
+  "test_lines": 41,
+  "base": "4616c021f60db9c8ec9f72a59cb9804458cf6ab7",
+  "head": "55231b56cc3fe0ef0edc8acbc1d03ce4e97d59d4",
+  "body": "close #15174\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved handling of recursive TypeScript type references during compilation.\n  * Prevented cached type information from being incorrectly traversed, avoiding compilation failures in affected cases.\n\n<!-- end of auto-generated comment: release notes by coderabbit."
+ },
+ {
+  "pr": 15186,
+  "title": "fix(runtime-vapor): remove special boolean attributes for falsy values",
+  "date": "2026-07-31",
+  "src": [
+   "packages/runtime-vapor/src/dom/prop.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/dom/prop.spec.ts"
+  ],
+  "src_lines": 11,
+  "test_lines": 16,
+  "base": "135c406e5dcd8b6bf7d59cd4daeb41ff5d100890",
+  "head": "23b874a5f3574d1fd6482639e9037af82ed82b92",
+  "body": "`:readonly=\"false\"` renders `readonly=\"false\"` in Vapor, which makes the input actually read-only. truthy values are written as `readonly=\"true\"` instead of `readonly=\"\"`. the same applies to the other boolean attributes whose DOM property name differs from the attribute name: `itemscope`, `allowfullscreen`, `formnovalidate`, `ismap`, `nomodule`, `novalidate`.\n\nrepro: https://play.vuejs.org/#eNpNj"
+ },
+ {
+  "pr": 15204,
+  "title": "fix(runtime-vapor): avoid tracking v-show source in fragment effects",
+  "date": "2026-08-03",
+  "src": [
+   "packages/runtime-vapor/src/directives/vShow.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/directives/vShow.spec.ts"
+  ],
+  "src_lines": 16,
+  "test_lines": 36,
+  "base": "721ce4f6bd3c1f9400d45231b16a059531a16f6c",
+  "head": "320fc5634a22a22bdc768af513b665c40768a2c9",
+  "body": ""
+ },
+ {
+  "pr": 15129,
+  "title": "fix(runtime-vapor): restore instance context when handling async setup result",
+  "date": "2026-07-20",
+  "src": [
+   "packages/runtime-vapor/src/component.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 16,
+  "test_lines": 48,
+  "base": "1b423b5b23f6ecf99a7d0666ab28748bd018870c",
+  "head": "13a4cf204494dd3adb0138e5734d49849b9413db",
+  "body": "this is one of several PRs to fix issues I noticed when testing vapor with Nuxt\r\n\r\nwhen testing v3.6.0-rc.1 Vapor Mode in Nuxt, I consistently hit:\r\n```\r\n[Vue warn]: renderEffect called without active EffectScope or Vapor instance\r\n```\r\nthis seems to be because when a vapor component with async setup resolves under a Suspense boundary, `handleSetupResult` is invoked from the `registerDep` callback"
+ },
+ {
+  "pr": 15143,
+  "title": "fix(scheduler): avoid stack overflow when flushing very large post cb arrays",
+  "date": "2026-07-21",
+  "src": [
+   "packages/runtime-core/src/components/Suspense.ts",
+   "packages/runtime-core/src/scheduler.ts"
+  ],
+  "tests": [
+   "packages/runtime-core/__tests__/scheduler.spec.ts"
+  ],
+  "src_lines": 17,
+  "test_lines": 38,
+  "base": "b5f8518379b77c3b62a7a9d2b52f6c76cda09bd5",
+  "head": "71c86ae34893b241dd187a8fd2e7188625bd686d",
+  "body": "close #15142\n\nWhen a suspense boundary stays pending while a large component tree under it keeps re-rendering (e.g. an app navigating away from a page with ~1000 mounted components that update on a timer), the buffered `suspense.effects` array can grow to hundreds of thousands of entries. Flushing it on resolve via `pendingPostFlushCbs.push(...cb)` spreads the whole array into a single call, which"
+ },
+ {
+  "pr": 15180,
+  "title": "fix(runtime-vapor): schedule async hydration anchors before updates",
+  "date": "2026-07-30",
+  "src": [
+   "packages/runtime-vapor/src/dom/hydrateFragment.ts",
+   "packages/runtime-vapor/src/dom/hydration.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/hydration.spec.ts"
+  ],
+  "src_lines": 18,
+  "test_lines": 170,
+  "base": "6173a401594a01d382919c17c73882816558b79b",
+  "head": "287e3a1d6ca51ac9d364268b55f757fabf8ed777",
+  "body": "- queue structural anchors before updates triggered during async hydration\r\n- cover both async component and async setup hydration paths\r\n- add regression tests for beforeMount-triggered branch updates\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved hydration reliability for asynchronous components and Suspense con"
+ },
+ {
+  "pr": 15105,
+  "title": "fix(runtime-core): avoid re-fetching resource props with unchanged values",
+  "date": "2026-07-18",
+  "src": [
+   "packages/runtime-core/src/hydration.ts"
+  ],
+  "tests": [
+   "packages/runtime-core/__tests__/hydration.spec.ts"
+  ],
+  "src_lines": 21,
+  "test_lines": 50,
+  "base": "fa2885d8c48768d26f1666a01bd540ffe3b20f9b",
+  "head": "b660dbd0724afb0c96528e4aad359843331990c5",
+  "body": "related: #9033\r\n\r\nspotted in an issue in #9083 in our ecosystem-ci tests for nuxt/image\r\n\r\nvue now writes dynamic props unconditionally, which means that for resource attributes (src/srcset/href/poster) that write restarts the network request\r\n\r\nI think it's better just to write dynamic props if the value differs, but there's probably no issue for other attributes, so I've restricted to just those"
+ },
+ {
+  "pr": 15132,
+  "title": "fix(runtime-vapor): hydrate vapor components in deferred vdom hydration via interop",
+  "date": "2026-07-20",
+  "src": [
+   "packages/runtime-core/src/index.ts",
+   "packages/runtime-vapor/src/dom/hydration.ts",
+   "packages/runtime-vapor/src/vdomInterop.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/hydration.spec.ts"
+  ],
+  "src_lines": 23,
+  "test_lines": 93,
+  "base": "1b423b5b23f6ecf99a7d0666ab28748bd018870c",
+  "head": "5faf56fc493862c089d7d94e66518e8c80ebe13d",
+  "body": "this is one of several PRs to fix issues I noticed when testing vapor with Nuxt\r\n\r\na vapor component wrapped in a VDOM `defineAsyncComponent` (with interop) SSRs fine but never hydrates on the client: with a lazy strategy like `hydrateOnVisible()` it stays inert after the trigger fires, and with a plain async loader it silently never attaches event handlers when the chunk resolves after the hydrat"
+ },
+ {
+  "pr": 15131,
+  "title": "fix(runtime-vapor): create slot anchor when hydrating unwrapped interop slot content",
+  "date": "2026-07-20",
+  "src": [
+   "packages/runtime-vapor/src/vdomInterop.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/hydration.spec.ts"
+  ],
+  "src_lines": 24,
+  "test_lines": 164,
+  "base": "208f1ed3bbe0079f7ca5d6024fb9e4899e7fdf6f",
+  "head": "6d7874b6b16a956af1d47cc44ae047f5d6e5eadb",
+  "body": "this is one of several PRs to fix issues I noticed when testing vapor with Nuxt\r\n\r\nhydrating a page where a vapor component renders `RouterLink` (via `NuxtLink`) consistently reported:\r\n\r\n```\r\n[Vue warn]: Hydration children mismatch on <a ...>\r\nServer rendered element contains more child nodes than client vdom.\r\n```\r\n\r\nand mismatch recovery re-rendered the subtree. in dev builds of core the same s"
+ },
+ {
+  "pr": 15111,
+  "title": "fix(runtime-vapor): validate props for vdom interop",
+  "date": "2026-07-19",
+  "src": [
+   "packages/runtime-vapor/src/componentProps.ts",
+   "packages/runtime-vapor/src/vdomInterop.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 25,
+  "test_lines": 24,
+  "base": "411ec5c35225016169a67854d8723e8b8ade95ad",
+  "head": "cf3d15f42c7c67338453e82b9f85529ff5cfdda8",
+  "body": "The Vapor-to-VDOM interop path bypasses VDOM's normal prop initialization, so invalid props are not validated during mount or reactive updates.\r\n\r\nReproduction: https://github.com/liang-demos/vue-vapor-interop\r\n\r\nThis PR reuses Vapor's reactive prop validation from the interop initialization hook and keeps the VDOM vnode as the warning context. The validation effect is attached to the VDOM compone"
+ },
+ {
+  "pr": 15191,
+  "title": "fix(runtime-vapor): preserve move semantics for VDOM roots",
+  "date": "2026-08-02",
+  "src": [
+   "packages/runtime-vapor/src/block.ts",
+   "packages/runtime-vapor/src/fragment.ts",
+   "packages/runtime-vapor/src/vdomInterop.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 29,
+  "test_lines": 59,
+  "base": "60e3b57d1c953fca597f29fa4148d57d196eabe0",
+  "head": "abf49eb9df0deb8b08add87cf7cd35335d44fd4e",
+  "body": "- forward fragment move types to VDOM interop roots\r\n- apply current transition hooks during enter and leave moves\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved component replacement during active leave transitions.\n  * Ensured the previous rendered content remains visible until its leave transition completes.\n  "
+ },
+ {
+  "pr": 15201,
+  "title": "fix(compiler-vapor): generate v-model after prop effects",
+  "date": "2026-08-03",
+  "src": [
+   "packages/compiler-vapor/src/generators/block.ts"
+  ],
+  "tests": [
+   "packages/compiler-vapor/__tests__/transforms/__snapshots__/vModel.spec.ts.snap",
+   "packages/compiler-vapor/__tests__/transforms/vModel.spec.ts"
+  ],
+  "src_lines": 31,
+  "test_lines": 39,
+  "base": "dff8dd5badaddea39f91da674be84d6af6f0f857",
+  "head": "d734e635c80e24893fc4b1ccdbb56ba53408b93b",
+  "body": "close #15200\r\n\r\nGenerate built-in v-model operations after initial DOM prop operations and reactive effects. This ensures dynamic input types are applied before applyDynamicModel selects the text, checkbox, or radio implementation.\r\n\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Fixed dynamic `v-model` behavior for inputs"
+ },
+ {
+  "pr": 15181,
+  "title": "fix(runtime-vapor): properly prune interop keep-alive entries",
+  "date": "2026-07-30",
+  "src": [
+   "packages/runtime-vapor/src/components/KeepAlive.ts",
+   "packages/runtime-vapor/src/vdomInterop.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 31,
+  "test_lines": 112,
+  "base": "d179213a37e6a7c4a426eb28a0dbd3ff4af50320",
+  "head": "afb316a1f173dbc880133e0f25ef67b2a621de50",
+  "body": "- sync KeepAlive state before interop deactivation\r\n- fully unmount max-pruned component types and VNodes\r\n- cover lifecycle, DOM, and reactive effect cleanup\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved KeepAlive behavior when switching between dynamic component types.\n  * Correctly removes previously displayed"
+ },
+ {
+  "pr": 15179,
+  "title": "fix(runtime-vapor): restore concurrent async hydration context",
+  "date": "2026-07-30",
+  "src": [
+   "packages/runtime-vapor/src/apiSetupHelpers.ts",
+   "packages/runtime-vapor/src/dom/hydration.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/hydration.spec.ts"
+  ],
+  "src_lines": 32,
+  "test_lines": 68,
+  "base": "c9389cc65e44b6cd60e56e2a7db1c4d2721501d5",
+  "head": "5dc3ec840009e4a2675ff7851a94fa284c99d380",
+  "body": "- preserve a shared baseline across overlapping async setup continuations\r\n- restore the baseline on each cleanup instead of restoring sibling state\r\n- add regression coverage for concurrent hydration and subsequent CSR mounts\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved hydration reliability for multiple concur"
+ },
+ {
+  "pr": 15130,
+  "title": "fix(runtime-vapor): contain setup errors in prod",
+  "date": "2026-07-20",
+  "src": [
+   "packages/runtime-vapor/src/component.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/errorHandling.spec.ts",
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 43,
+  "test_lines": 83,
+  "base": "1b423b5b23f6ecf99a7d0666ab28748bd018870c",
+  "head": "043f1bd4de6789a857407c70b0df6503b5ef45ab",
+  "body": "this is one of several PRs to fix issues I noticed when testing vapor with Nuxt\r\n\r\na vapor component that throws synchronously in setup inside a parent using `onErrorCaptured` (`<NuxtErrorBoundary>`) works fine in dev, but production builds crash with:\r\n\r\n```\r\nTypeError: Cannot read properties of undefined (reading 'anchor')\r\n```\r\n\r\nduring mount (and `reading 'onRemove'` on unmount), tearing down "
+ },
+ {
+  "pr": 15203,
+  "title": "fix(runtime-vapor): avoid tracking v-show transition hooks",
+  "date": "2026-08-03",
+  "src": [
+   "packages/runtime-vapor/src/directives/vShow.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/components/Transition.spec.ts"
+  ],
+  "src_lines": 49,
+  "test_lines": 50,
+  "base": "721ce4f6bd3c1f9400d45231b16a059531a16f6c",
+  "head": "c7789d36f623d8a15d58cf5e4ddd95df9c291cce",
+  "body": "close #15202 \n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Fixed recursive updates during `v-show` transitions.\n  * Transition hooks now execute reliably without unintended reactive tracking, ensuring visibility changes and rendered state remain consistent.\n\n* **Tests**\n  * Added regression coverage for reactive state upd"
+ },
+ {
+  "pr": 15124,
+  "title": "fix(compiler-vapor): avoid helper and cache variable name collisions",
+  "date": "2026-07-20",
+  "src": [
+   "packages/compiler-vapor/src/generate.ts",
+   "packages/compiler-vapor/src/generators/expression.ts"
+  ],
+  "tests": [
+   "packages/compiler-vapor/__tests__/transforms/__snapshots__/vFor.spec.ts.snap",
+   "packages/compiler-vapor/__tests__/transforms/vFor.spec.ts"
+  ],
+  "src_lines": 54,
+  "test_lines": 81,
+  "base": "a686662492f00c4cb2552cf9ffcc39fc13e0730f",
+  "head": "a9f0efa7e7f681551365ec385a34f2d6ab41058d",
+  "body": "close #15118\n\n<!-- This is an auto-generated comment: release notes by coderabbit.ai -->\n\n## Summary by CodeRabbit\n\n* **Bug Fixes**\n  * Improved generated code to prevent naming collisions between template variables and compiler-generated helpers or cache variables.\n  * Ensured generated property updates and selectors reference the correct uniquely named variables.\n\n* **Tests**\n  * Added coverage "
+ },
+ {
+  "pr": 15158,
+  "title": "fix(runtime-vapor): handle custom directives on fragment roots",
+  "date": "2026-07-24",
+  "src": [
+   "packages/runtime-vapor/src/directives/custom.ts"
+  ],
+  "tests": [
+   "packages/runtime-vapor/__tests__/directives/customDirective.spec.ts",
+   "packages/runtime-vapor/__tests__/vdomInterop.spec.ts"
+  ],
+  "src_lines": 114,
+  "test_lines": 128,
+  "base": "bf5978815d541e976d0705b7f4864e0ad518fa70",
+  "head": "9ae309108702d6c9db61a114cda285f2229965f0",
+  "body": "Close #15157\r\n\r\nThis PR makes `withVaporDirectives` trace fragment's root-element updates and apply the directive dynamically, to make vapor directive's behavior similar to VDOM's.\r\n\r\n\ud83e\udd16 Generated with Codex, reviewed by human."
+ }
+]

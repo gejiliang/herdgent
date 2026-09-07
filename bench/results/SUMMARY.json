@@ -1,0 +1,1281 @@
+{
+  "summary": [
+    {
+      "kind": "frontend",
+      "task": "fe-baseline",
+      "harness": "codex",
+      "n": 1,
+      "tier": "基线",
+      "wire": "openai/responses",
+      "ms": {
+        "mean": 80082,
+        "min": 80082,
+        "max": 80082,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 51177,
+        "min": 51177,
+        "max": 51177,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-baseline",
+      "harness": "opencode",
+      "n": 1,
+      "tier": "基线",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 56173,
+        "min": 56173,
+        "max": 56173,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 905,
+        "min": 905,
+        "max": 905,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 4,
+        "min": 4,
+        "max": 4,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-baseline",
+      "harness": "pi",
+      "n": 1,
+      "tier": "基线",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 61921,
+        "min": 61921,
+        "max": 61921,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 27962306,
+        "min": 27962306,
+        "max": 27962306,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 4,
+        "min": 4,
+        "max": 4,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-baseline",
+      "harness": "kimi",
+      "n": 1,
+      "tier": "基线",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 56096,
+        "min": 56096,
+        "max": 56096,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 1855,
+        "min": 1855,
+        "max": 1855,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-baseline",
+      "harness": "claude",
+      "n": 1,
+      "tier": "基线",
+      "wire": "anthropic/messages",
+      "ms": {
+        "mean": 67981,
+        "min": 67981,
+        "max": 67981,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2336,
+        "min": 2336,
+        "max": 2336,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 4,
+        "min": 4,
+        "max": 4,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-spread",
+      "harness": "codex",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/responses",
+      "ms": {
+        "mean": 63022,
+        "min": 63022,
+        "max": 63022,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 53628,
+        "min": 53628,
+        "max": 53628,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 4,
+        "min": 4,
+        "max": 4,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-spread",
+      "harness": "opencode",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 35261,
+        "min": 35261,
+        "max": 35261,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 677,
+        "min": 677,
+        "max": 677,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-spread",
+      "harness": "pi",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 55087,
+        "min": 55087,
+        "max": 55087,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 39596904,
+        "min": 39596904,
+        "max": 39596904,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 4,
+        "min": 4,
+        "max": 4,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-spread",
+      "harness": "kimi",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 62129,
+        "min": 62129,
+        "max": 62129,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2585,
+        "min": 2585,
+        "max": 2585,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 4,
+        "min": 4,
+        "max": 4,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-spread",
+      "harness": "claude",
+      "n": 1,
+      "tier": "分化",
+      "wire": "anthropic/messages",
+      "ms": {
+        "mean": 54944,
+        "min": 54944,
+        "max": 54944,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2929,
+        "min": 2929,
+        "max": 2929,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-hard",
+      "harness": "claude",
+      "n": 1,
+      "tier": "难",
+      "wire": "anthropic/messages",
+      "ms": {
+        "mean": 51990,
+        "min": 51990,
+        "max": 51990,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2772,
+        "min": 2772,
+        "max": 2772,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-hard",
+      "harness": "codex",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/responses",
+      "ms": {
+        "mean": 31686,
+        "min": 31686,
+        "max": 31686,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 20013,
+        "min": 20013,
+        "max": 20013,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 2,
+        "min": 2,
+        "max": 2,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-hard",
+      "harness": "opencode",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 19182,
+        "min": 19182,
+        "max": 19182,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 733,
+        "min": 733,
+        "max": 733,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-hard",
+      "harness": "pi",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 29733,
+        "min": 29733,
+        "max": 29733,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 5860924,
+        "min": 5860924,
+        "max": 5860924,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 2,
+        "min": 2,
+        "max": 2,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "frontend",
+      "task": "fe-hard",
+      "harness": "kimi",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 43915,
+        "min": 43915,
+        "max": 43915,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2060,
+        "min": 2060,
+        "max": 2060,
+        "n": 1
+      },
+      "solved": 1,
+      "regressed": 0,
+      "specRate": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "filesChanged": {
+        "mean": 2,
+        "min": 2,
+        "max": 2,
+        "n": 1
+      },
+      "claimedCount": 1,
+      "falseClaims": 0,
+      "falseClaimRate": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-baseline",
+      "harness": "pi",
+      "n": 2,
+      "tier": "基线",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 231788,
+        "min": 159891,
+        "max": 303685,
+        "n": 2
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": null,
+      "generated": {
+        "mean": 2.5,
+        "min": 0,
+        "max": 5,
+        "n": 2
+      },
+      "precision": {
+        "mean": 0.6,
+        "min": 0.6,
+        "max": 0.6,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.3,
+        "min": 0,
+        "max": 0.6,
+        "n": 2
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-baseline",
+      "harness": "claude",
+      "n": 2,
+      "tier": "基线",
+      "wire": "anthropic/messages",
+      "ms": {
+        "mean": 571783,
+        "min": 563327,
+        "max": 580239,
+        "n": 2
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": null,
+      "generated": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 2
+      },
+      "precision": {
+        "mean": 0.6666666666666666,
+        "min": 0.6666666666666666,
+        "max": 0.6666666666666666,
+        "n": 2
+      },
+      "recall": {
+        "mean": 0.4,
+        "min": 0.4,
+        "max": 0.4,
+        "n": 2
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 2
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-baseline",
+      "harness": "codex",
+      "n": 2,
+      "tier": "基线",
+      "wire": "openai/responses",
+      "ms": {
+        "mean": 206674,
+        "min": 192849,
+        "max": 220499,
+        "n": 2
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": null,
+      "generated": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 2
+      },
+      "precision": {
+        "mean": 0.5,
+        "min": 0.3333333333333333,
+        "max": 0.6666666666666666,
+        "n": 2
+      },
+      "recall": {
+        "mean": 0.30000000000000004,
+        "min": 0.2,
+        "max": 0.4,
+        "n": 2
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 2
+      },
+      "formatStrict": 1,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-baseline",
+      "harness": "opencode",
+      "n": 2,
+      "tier": "基线",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 196925.5,
+        "min": 132622,
+        "max": 261229,
+        "n": 2
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2530,
+        "min": 2530,
+        "max": 2530,
+        "n": 1
+      },
+      "generated": {
+        "mean": 3.5,
+        "min": 2,
+        "max": 5,
+        "n": 2
+      },
+      "precision": {
+        "mean": 0.45,
+        "min": 0.4,
+        "max": 0.5,
+        "n": 2
+      },
+      "recall": {
+        "mean": 0.30000000000000004,
+        "min": 0.2,
+        "max": 0.4,
+        "n": 2
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 2
+      },
+      "formatStrict": 1,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-baseline",
+      "harness": "kimi",
+      "n": 1,
+      "tier": "基线",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 189341,
+        "min": 189341,
+        "max": 189341,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": null,
+      "generated": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "precision": {
+        "mean": 0.3333333333333333,
+        "min": 0.3333333333333333,
+        "max": 0.3333333333333333,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.2,
+        "min": 0.2,
+        "max": 0.2,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-spread",
+      "harness": "claude",
+      "n": 1,
+      "tier": "分化",
+      "wire": "anthropic/messages",
+      "ms": {
+        "mean": 259239,
+        "min": 259239,
+        "max": 259239,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2695,
+        "min": 2695,
+        "max": 2695,
+        "n": 1
+      },
+      "generated": {
+        "mean": 2,
+        "min": 2,
+        "max": 2,
+        "n": 1
+      },
+      "precision": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.2857142857142857,
+        "min": 0.2857142857142857,
+        "max": 0.2857142857142857,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-spread",
+      "harness": "codex",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/responses",
+      "ms": {
+        "mean": 230963,
+        "min": 230963,
+        "max": 230963,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 200932,
+        "min": 200932,
+        "max": 200932,
+        "n": 1
+      },
+      "generated": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "precision": {
+        "mean": 0.6666666666666666,
+        "min": 0.6666666666666666,
+        "max": 0.6666666666666666,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.2857142857142857,
+        "min": 0.2857142857142857,
+        "max": 0.2857142857142857,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-spread",
+      "harness": "opencode",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 385486,
+        "min": 385486,
+        "max": 385486,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2118,
+        "min": 2118,
+        "max": 2118,
+        "n": 1
+      },
+      "generated": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "precision": {
+        "mean": 0.6666666666666666,
+        "min": 0.6666666666666666,
+        "max": 0.6666666666666666,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.2857142857142857,
+        "min": 0.2857142857142857,
+        "max": 0.2857142857142857,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-spread",
+      "harness": "pi",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 242928,
+        "min": 242928,
+        "max": 242928,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 379193946,
+        "min": 379193946,
+        "max": 379193946,
+        "n": 1
+      },
+      "generated": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "precision": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.14285714285714285,
+        "min": 0.14285714285714285,
+        "max": 0.14285714285714285,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-spread",
+      "harness": "kimi",
+      "n": 1,
+      "tier": "分化",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 380272,
+        "min": 380272,
+        "max": 380272,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 1390,
+        "min": 1390,
+        "max": 1390,
+        "n": 1
+      },
+      "generated": {
+        "mean": 2,
+        "min": 2,
+        "max": 2,
+        "n": 1
+      },
+      "precision": {
+        "mean": 0.5,
+        "min": 0.5,
+        "max": 0.5,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.14285714285714285,
+        "min": 0.14285714285714285,
+        "max": 0.14285714285714285,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-hard",
+      "harness": "claude",
+      "n": 1,
+      "tier": "难",
+      "wire": "anthropic/messages",
+      "ms": {
+        "mean": 900031,
+        "min": 900031,
+        "max": 900031,
+        "n": 1
+      },
+      "timedOut": 1,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 1139,
+        "min": 1139,
+        "max": 1139,
+        "n": 1
+      },
+      "generated": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "precision": null,
+      "recall": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "noise": null,
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-hard",
+      "harness": "codex",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/responses",
+      "ms": {
+        "mean": 615953,
+        "min": 615953,
+        "max": 615953,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 467282,
+        "min": 467282,
+        "max": 467282,
+        "n": 1
+      },
+      "generated": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "precision": {
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.14285714285714285,
+        "min": 0.14285714285714285,
+        "max": 0.14285714285714285,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-hard",
+      "harness": "opencode",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 578726,
+        "min": 578726,
+        "max": 578726,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2629,
+        "min": 2629,
+        "max": 2629,
+        "n": 1
+      },
+      "generated": {
+        "mean": 5,
+        "min": 5,
+        "max": 5,
+        "n": 1
+      },
+      "precision": {
+        "mean": 0.8,
+        "min": 0.8,
+        "max": 0.8,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.2857142857142857,
+        "min": 0.2857142857142857,
+        "max": 0.2857142857142857,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-hard",
+      "harness": "pi",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 472839,
+        "min": 472839,
+        "max": 472839,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 764162458,
+        "min": 764162458,
+        "max": 764162458,
+        "n": 1
+      },
+      "generated": {
+        "mean": 4,
+        "min": 4,
+        "max": 4,
+        "n": 1
+      },
+      "precision": {
+        "mean": 0.75,
+        "min": 0.75,
+        "max": 0.75,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.21428571428571427,
+        "min": 0.21428571428571427,
+        "max": 0.21428571428571427,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0.25,
+        "min": 0.25,
+        "max": 0.25,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    },
+    {
+      "kind": "review",
+      "task": "review-hard",
+      "harness": "kimi",
+      "n": 1,
+      "tier": "难",
+      "wire": "openai/chat",
+      "ms": {
+        "mean": 517101,
+        "min": 517101,
+        "max": 517101,
+        "n": 1
+      },
+      "timedOut": 0,
+      "retries": 0,
+      "stdoutBytes": {
+        "mean": 2470,
+        "min": 2470,
+        "max": 2470,
+        "n": 1
+      },
+      "generated": {
+        "mean": 3,
+        "min": 3,
+        "max": 3,
+        "n": 1
+      },
+      "precision": {
+        "mean": 0.3333333333333333,
+        "min": 0.3333333333333333,
+        "max": 0.3333333333333333,
+        "n": 1
+      },
+      "recall": {
+        "mean": 0.07142857142857142,
+        "min": 0.07142857142857142,
+        "max": 0.07142857142857142,
+        "n": 1
+      },
+      "noise": {
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "n": 1
+      },
+      "formatStrict": 0,
+      "touched": 0
+    }
+  ],
+  "droppedInfra": 1,
+  "totalRuns": 35
+}

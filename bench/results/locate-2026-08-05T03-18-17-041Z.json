@@ -1,0 +1,41 @@
+[
+  {
+    "task": "loc-baseline",
+    "tier": "基线",
+    "harness": "codex",
+    "wire": "openai/responses",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 139436,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 26,
+      "input": 20495,
+      "cached": 676096,
+      "output": 13419,
+      "reasoning": 11403,
+      "unparsed": 0
+    },
+    "stdoutBytes": 123203,
+    "parseOk": true,
+    "formatStrict": true,
+    "total_reported": 1,
+    "truth_files": 1,
+    "file_recall": 1,
+    "file_precision": 1,
+    "line_recall": 1,
+    "hitFiles": [
+      "packages/runtime-vapor/src/components/KeepAlive.ts"
+    ],
+    "missedFiles": [],
+    "filesTouched": 0,
+    "rawText": "[{\"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\", \"from_line\": 336, \"to_line\": 372, \"why\": \"KeepAlive's onBeforeUnmount iterates every cached branch during teardown and decides per branch whether the current entry is kept (shape flag cleared plus deactivated hook queued) or removed, with a fallback for a same-tick current block that is still kept-alive.\"}]",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-18-20-003Z-codex-loc-loc-baseline-1",
+    "answerBytes": 372,
+    "answerBytesTruncated": false,
+    "amplification": 331.19086021505376
+  }
+]

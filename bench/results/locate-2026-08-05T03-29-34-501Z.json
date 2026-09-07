@@ -1,0 +1,122 @@
+[
+  {
+    "task": "loc-baseline",
+    "tier": "基线",
+    "harness": "codex",
+    "wire": "openai/responses",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 271078,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 47,
+      "input": 36198,
+      "cached": 1779200,
+      "output": 23400,
+      "reasoning": 18263,
+      "unparsed": 1
+    },
+    "stdoutBytes": 227018,
+    "parseOk": true,
+    "formatStrict": true,
+    "total_reported": 3,
+    "truth_files": 1,
+    "file_recall": 1,
+    "file_precision": 0.6666666666666666,
+    "line_recall": 1,
+    "hitFiles": [
+      "packages/runtime-vapor/src/components/KeepAlive.ts"
+    ],
+    "missedFiles": [],
+    "filesTouched": 0,
+    "rawText": "[{\"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\", \"from_line\": 336, \"to_line\": 372, \"why\": \"KeepAlive's onBeforeUnmount iterates its cache and decides per cached branch whether the current one is only deactivated/kept (deactivateCached) while every other entry has its keep-alive flag cleared and is removed outright, with a fallback for a same-tick live branch already marked kept-alive.\"}, {\"path\": \"packages/runtime-vapor/src/component.ts\", \"from_line\": 1280, \"to_line\": 1295, \"why\": \"unmountComponent decides whether a component still flagged COMPONENT_SHOULD_KEEP_ALIVE gets detached into the storage container via ctx.deactivate (kept) instead of being unmounted (removed outright).\"}, {\"path\": \"packages/runtime-vapor/src/components/KeepAlive.ts\", \"from_line\": 628, \"to_line\": 654, \"why\": \"The Vapor deactivate implementation executes the 'detached' outcome by moving the kept branch into the detached storage container, clearing its refs/hooks and firing the deactivated hook.\"}]",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-29-42-329Z-codex-loc-loc-baseline-1",
+    "answerBytes": 1001,
+    "answerBytesTruncated": false,
+    "amplification": 226.7912087912088
+  },
+  {
+    "task": "loc-spread",
+    "tier": "分化",
+    "harness": "codex",
+    "wire": "openai/responses",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 22041,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 7,
+      "input": 7475,
+      "cached": 93568,
+      "output": 1581,
+      "reasoning": 1116,
+      "unparsed": 0
+    },
+    "stdoutBytes": 25036,
+    "parseOk": true,
+    "formatStrict": true,
+    "total_reported": 1,
+    "truth_files": 2,
+    "file_recall": 0.5,
+    "file_precision": 1,
+    "line_recall": 0,
+    "hitFiles": [
+      "packages/runtime-core/src/scheduler.ts"
+    ],
+    "missedFiles": [
+      "packages/runtime-core/src/components/Suspense.ts"
+    ],
+    "filesTouched": 0,
+    "rawText": "[{\"path\": \"packages/runtime-core/src/scheduler.ts\", \"from_line\": 228, \"to_line\": 267, \"why\": \"flushJobs walks the scheduler's queue from flushIndex 0 onward, executing each pending job in order via callWithErrorHandling, then clears the queue and re-flushes if new jobs were enqueued during the flush.\"}]",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-34-17-469Z-codex-loc-loc-spread-1",
+    "answerBytes": 304,
+    "answerBytesTruncated": false,
+    "amplification": 82.35526315789474
+  },
+  {
+    "task": "loc-hard",
+    "tier": "难",
+    "harness": "codex",
+    "wire": "openai/responses",
+    "rep": 1,
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "ms": 103026,
+    "attempt": 0,
+    "infraFailure": false,
+    "tokens": {
+      "requests": 23,
+      "input": 31373,
+      "cached": 674304,
+      "output": 9266,
+      "reasoning": 7034,
+      "unparsed": 0
+    },
+    "stdoutBytes": 151932,
+    "parseOk": true,
+    "formatStrict": true,
+    "total_reported": 9,
+    "truth_files": 2,
+    "file_recall": 1,
+    "file_precision": 0.8888888888888888,
+    "line_recall": 1,
+    "hitFiles": [
+      "packages/compiler-vapor/src/generate.ts",
+      "packages/compiler-vapor/src/generators/expression.ts"
+    ],
+    "missedFiles": [],
+    "filesTouched": 0,
+    "rawText": "[{\"path\": \"packages/compiler-vapor/src/generate.ts\", \"from_line\": 49, \"to_line\": 71, \"why\": \"CodegenContext.helper invents the `_`-prefixed alias for each runtime helper import, appending numeric suffixes when the base name is unavailable.\"}, {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 715, \"to_line\": 763, \"why\": \"processRepeatedExpressions names cached repeated expressions (e.g. `foo + baz` becomes `foo_baz`) by calling genVarName/getUniqueDeclarationName and registering replacements.\"}, {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 531, \"to_line\": 582, \"why\": \"processRepeatedVariables names cached repeated variable/member-expression references (e.g. `foo[baz]` becomes `foo_baz`) with unique declaration names.\"}, {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 982, \"to_line\": 987, \"why\": \"genVarName turns expression source text into a candidate identifier by replacing non-alphanumeric characters with underscores.\"}, {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 989, \"to_line\": 1000, \"why\": \"getUniqueDeclarationName makes candidate cache-variable names unique by appending numeric suffixes until no reserved name collides.\"}, {\"path\": \"packages/compiler-vapor/src/generators/expression.ts\", \"from_line\": 934, \"to_line\": 972, \"why\": \"genDeclarations emits the cached expression variables as `const _name = ...` statements, adding the `_` prefix to the generated names.\"}, {\"path\": \"packages/compiler-vapor/src/generate.ts\", \"from_line\": 144, \"to_line\": 172, \"why\": \"isHelperNameAvailable and initNextIdMap track taken binding names and numeric ids so helper aliases avoid collisions with cache variables.\"}, {\"path\": \"packages/compiler-vapor/src/generate.ts\", \"from_line\": 312, \"to_line\": 319, \"why\": \"genHelperImports renders the invented helper aliases as `import { h as alias }` bindings in the generated JavaScript.\"}, {\"path\": \"packages/compiler-vapor/src/generators/component.ts\", \"from_line\": 189, \"to_line\": 195, \"why\": \"getUniqueHandlerName invents unique `_on_...` variable names for cached inline handler expressions, disambiguating repeats with numeric suffixes.\"}]",
+    "runDir": "/Users/gejiliang/Workspace/idiotStudio/herdgent/.claude/worktrees/harness-bench/bench/.runs/2026-08-05T03-34-42-973Z-codex-loc-loc-hard-1",
+    "answerBytes": 2220,
+    "answerBytesTruncated": false,
+    "amplification": 68.43783783783783
+  }
+]

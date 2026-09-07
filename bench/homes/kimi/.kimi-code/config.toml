@@ -1,0 +1,24 @@
+# 评测用的独立 Kimi Code 配置。HOME 隔离后 kimi 只读这里，GG 的 ~/.kimi-code 不受影响。
+# GG 那份用的是 [providers."managed:kimi-code"]（OAuth 托管），这里换成裸的自定义 provider。
+#
+# 字段是实测逼出来的，不是照抄文档：少了 type / max_context_size / capabilities
+# 任何一个，kimi 都只会说 "Ignored invalid config"，然后报模型未配置 —— 错误信息
+# 不会告诉你到底缺哪个。
+default_model = "qp/deepseek-v4-flash"
+
+# 五家统一拉满 thinking。kimi 只有 low/high/max 三档
+[thinking]
+enabled = true
+effort = "high"
+
+[providers.qp]
+type = "openai"
+base_url = "__BASE_URL__/v1"
+api_key = "__NEWAPI_KEY__"
+
+[models."qp/deepseek-v4-flash"]
+provider = "qp"
+model = "deepseek-v4-flash"
+max_context_size = 128000
+capabilities = ["thinking", "tool_use"]
+display_name = "DeepSeek V4 Flash"
