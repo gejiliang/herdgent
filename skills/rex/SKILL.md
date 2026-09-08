@@ -170,8 +170,11 @@ run_plan({ label: "重构认证", steps: [
 
 `blocked` 的意思是 **herdr 检测到它卡在一个审批或提问界面上**，不处理就永远不动。
 
-- 先 `read_worker mode=screen` 看它到底在问什么
-- 能替它决定就 `send_to_worker` 回答
+- 先 `read_worker mode=screen` 看它到底在问什么——**必须先看**：blocked 时 `send_to_worker`
+  不经 herdr 的守卫，直接敲进对话框
+- 能替它决定就 `send_to_worker` 回答：选项用 `keys`（`["enter"]` 选高亮项、`["down","enter"]`
+  选下一项、`["esc"]` 取消），要打字才用 `text`（原样敲进去再回车）。**对选项框发 `text`
+  等于回车选高亮项**（实测：发 "Blue" 选中的是高亮的 Red），选项别用 text
 - 需要人拍板就问人，**不要替人做不可逆的决定**（删数据、推远程、改生产配置）
 - 如果这类会话反复卡在权限上而任务本身是安全的，那是 **profile 选错了**（实现类 profile
   本来就带 yolo）。你不能按次改权限——跟人说该用哪个 profile，或者让人改 profile 配置
@@ -179,7 +182,7 @@ run_plan({ label: "重构认证", steps: [
 ## 出问题时
 
 - **`run_plan` 报步骤失败是真失败**，不是「暂时读不到」——计划已中断，按 reason 处理：
-  - `blocked` —— 卡在审批／提问，`read_worker mode=screen` 看它在问什么，用 `send_to_worker` 答
+  - `blocked` —— 卡在审批／提问，`read_worker mode=screen` 看它在问什么，用 `send_to_worker` 答（选项走 `keys`）
   - `unreachable` —— 联系不上 worker，去看那个 pane（人也能直接点进去看）
   - `still_running` —— 等满兜底上限还没干完，先 `read_worker` 看它在干什么，再决定继续等还是干预
 - **步骤因「拿不到可读产出」而失败时，活可能已经干了** —— 先 `read_worker` 看一眼产出是不是真的不在，再决定要不要重派，别直接重派。

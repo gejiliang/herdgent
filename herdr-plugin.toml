@@ -5,8 +5,10 @@ name = "Herdgent"
 version = "0.7.0"
 description = "Meta-harness for Herdr: starts, tracks and orchestrates managed agent sessions."
 # [[startup]] 与 agent start/prompt/wait CLI 门面均为 0.7.5 (2026-07-21) 新增；
-# 但 startup 对账依赖 0.8.0 的 agent_not_found 语义，故最低支持版本是 0.8.0。
-min_herdr_version = "0.8.0"
+# startup 对账依赖 0.8.0 的 agent_not_found 语义；提交与 blocked 路径按 0.9.0 契约写
+#（agent prompt 自带 Enter、blocked 拒收、启动期 blocked 报 agent_not_ready，见 docs/findings-2026-09-08.md）。
+# 只跟最新版：下限就是当前用的这一版，与 bin/install.mjs 的 MIN_HERDR 同步。
+min_herdr_version = "0.9.0"
 platforms = ["macos"]
 
 # server 启动与 live handoff 后跑一次：0.8.0 会恢复只跑 zsh 的 pane、agent 则消失，

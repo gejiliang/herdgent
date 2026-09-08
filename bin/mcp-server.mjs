@@ -593,17 +593,29 @@ const TOOLS = [
   {
     name: "send_to_worker",
     description:
-      "Send a follow-up instruction to a worker that is already running. Use this to answer a worker that came back 'blocked', or to send work back for rework. Its stage tab automatically flips back to in-progress, so the sidebar stops claiming that step is finished. Returns submitted=false if the text could not be confirmed as submitted — treat that as 'not delivered' and retry rather than assuming it landed.",
+      "Send a follow-up instruction to a running worker, or answer one that came back 'blocked'. Give exactly one of text / keys: text is an instruction (or something to type into a dialog that accepts free text); keys answers an option dialog with logical key names, e.g. [\"enter\"] picks the highlighted option, [\"down\",\"enter\"] the next one, [\"esc\"] cancels. On an option dialog text is NOT a selection — it just presses Enter on the highlighted option (verified) — so use keys there. While the worker is blocked, delivery goes straight into its dialog without herdr's guard, so read_worker mode=screen first and never answer a dialog you have not seen. Its stage tab automatically flips back to in-progress, so the sidebar stops claiming that step is finished. Returns submitted=false if the input could not be confirmed as taken — treat that as 'not delivered' and retry rather than assuming it landed.",
     inputSchema: {
       type: "object",
       properties: {
         worker_id: { type: "string", description: "Worker handle from spawn_worker" },
-        text: { type: "string", description: "The instruction to send" },
+        text: { type: "string", description: "The instruction (or dialog answer) to type, followed by Enter" },
+        keys: {
+          type: "array",
+          items: { type: "string" },
+          description: "Key presses for an option dialog, in order: enter, esc, up, down, tab, digits, ctrl+c …",
+        },
       },
-      required: ["worker_id", "text"],
+      required: ["worker_id"],
     },
     handler: async (args) => {
       const w = mustFindWorker(args.worker_id);
+      const hasText = typeof args.text === "string" && args.text.length > 0;
+      const hasKeys = Array.isArray(args.keys) && args.keys.length > 0;
+      if (hasText === hasKeys) {
+        throw Object.assign(new Error("send_to_worker needs exactly one of text / keys"), {
+          code: "text_or_keys_required",
+        });
+      }
       // 发送【之前】的轮次数才是这一轮的基线——发完再数就把新回复也算进去了。
       let turnsBefore = 0;
       try {
@@ -611,7 +623,10 @@ const TOOLS = [
       } catch {
         turnsBefore = 0;
       }
-      const r = sendAndConfirm(w.pane_id, args.text, { harness: w.harness || "claude" });
+      const r = sendAndConfirm(w.pane_id, hasText ? args.text : null, {
+        harness: w.harness || "claude",
+        keys: hasKeys ? args.keys : null,
+      });
       if (r.submitted) {
         // 派了新活 → 这个环节又在跑了，tab 后缀从 ✓ 退回 ⋯。
         // 挂在这里而不是给编排者一个「改状态」的动词：状态该由【实际发生的事】
@@ -901,7 +916,7 @@ function ensureSpace(label, branch, container = "worktree") {
 function waitFailureReason(state, worker) {
   const who = worker?.title ? `'${worker.title}' (${state.worker_id})` : `'${state.worker_id}'`;
   if (state.status === "blocked") {
-    return `worker ${who} is blocked and needs a human — use read_worker mode=screen for ${state.worker_id} to see its approval or question`;
+    return `worker ${who} is blocked and needs a human — use read_worker mode=screen for ${state.worker_id} to see its approval or question, then answer it with send_to_worker (keys for an option dialog, text to type)`;
   }
   if (state.status === "unreachable") {
     return `worker ${who} is unreachable (${state.reason || "event stream unavailable"}) — use read_worker mode=screen for ${state.worker_id} and inspect its pane`;

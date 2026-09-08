@@ -248,9 +248,13 @@ herdgent **不维护模型清单**——本地任何一份都会骗人（实测�
 
 | | 能指定模型 | 提交语义 | session 引用 | 特别之处 |
 |---|---|---|---|---|
-| `claude` | ❌ 只跑自家 | 须补 enter | 自装钩子 | |
+| `claude` | ❌ 只跑自家 | 自动提交 | 自装钩子 | |
 | `codex` | ❌ 只跑自家 | 自动提交 | herdr 报 id | 目录信任必须注入；**现无凭据，没有 profile 指向它** |
 | `pi` | ✅ 网关上有什么就能跑什么 | 自动提交 | herdr 报 **path** | 只读用工具白名单，比 YOLO 精确 |
+
+提交语义自 herdr 0.9.0 起三家一致：`agent prompt` 自带 Enter（claude 曾须补回车，2026-09-08 实测已不需要，
+多补反而会替人按下审批框默认项）。worker `blocked` 时 herdr 拒收 prompt（`agent_blocked`），
+`send_to_worker` 改走 `send-keys` / `pane send-text`——不经守卫，所以编排者答之前必须先看屏幕。
 
 pi 的模型经 quota-proxy 覆盖 Anthropic / Moonshot / 智谱 / DeepSeek / MiniMax / 豆包等——
 真正的跨厂商评审靠它。**具体有哪些只能问网关 `/v1/models`**，本地任何一份清单都会骗人
@@ -264,9 +268,12 @@ server 重启后的 headless 恢复行为随 herdr 版本不同，两版都实�
 - **0.7.5**：只恢复布局、不恢复运行时——agent 进程全被杀，但 `agent list` 仍报它们 `idle` + `interactive_ready: true`（pane 侧报 `pane_not_found`）。**只看 agent 接口的编排器会对着尸体发指令。**
 - **0.8.0**：反过来了——agent 接口诚实了（`agent_not_found`），但 pane 被恢复（shell 重新起来），`pane process-info` 对死 agent **成功返回**。
 
-所以 0.7.5 时代定的判据「`process-info` 探得活就算活」在 0.8.0 下失效：实测 `bin/reconcile.mjs` 把一个确认已死的 agent 判成活的，幽灵记录永久占住并发额度。**判据要问「这个 pane 上还有我们的 agent 吗」，不是「这个 pane 还在吗」**——对账已改为以 agent 是否还在为判据，**herdgent 要求 herdr ≥ 0.8.0**。上面两版对比留着不是兼容性承诺，是教训的证据：**上游行为会整个反转，所以判据必须标明版本**。
+所以 0.7.5 时代定的判据「`process-info` 探得活就算活」在 0.8.0 下失效：实测 `bin/reconcile.mjs` 把一个确认已死的 agent 判成活的，幽灵记录永久占住并发额度。**判据要问「这个 pane 上还有我们的 agent 吗」，不是「这个 pane 还在吗」**——对账已改为以 agent 是否还在为判据，**herdgent 要求 herdr ≥ 0.9.0**（只跟最新版，见 AGENTS.md）。上面两版对比留着不是兼容性承诺，是教训的证据：**上游行为会整个反转，所以判据必须标明版本**。
 
-细节见 [docs/findings-2026-07-31.md](docs/findings-2026-07-31.md)（0.7.5 实测）与 [docs/findings-2026-08-05.md](docs/findings-2026-08-05.md) 第五节（0.8.0 实测）。
+0.9.0（2026-09-07）没再动恢复行为，动的是 agent 契约的三处：`agent prompt` 自带 Enter、blocked 时拒收（`agent_blocked`）、
+启动期 blocked 报 `agent_not_ready`。三处都已跟进，实测见 [docs/findings-2026-09-08.md](docs/findings-2026-09-08.md)。
+
+细节见 [docs/findings-2026-07-31.md](docs/findings-2026-07-31.md)（0.7.5 实测）、[docs/findings-2026-08-05.md](docs/findings-2026-08-05.md) 第五节（0.8.0 实测）与 [docs/findings-2026-09-08.md](docs/findings-2026-09-08.md)（0.9.0 实测）。
 
 ## 许可
 
