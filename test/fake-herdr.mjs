@@ -15,7 +15,8 @@ import { join, resolve } from "node:path";
 export const FAKE_HERDR_SOURCE = `#!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 const statePath = process.env.HG_FAKE_HERDR_STATE;
-const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : { seq: 0, workspaces: {}, tabs: {}, panes: {}, calls: [] };
+const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : { seq: 0, workspaces: {}, tabs: {}, panes: {}, primaries: {}, calls: [] };
+state.primaries = state.primaries || {};
 const save = () => writeFileSync(statePath, JSON.stringify(state, null, 2));
 const args = process.argv.slice(2);
 state.calls.push(args.join(" "));
@@ -23,26 +24,82 @@ function ok(result) { process.stdout.write(JSON.stringify({ id: "fake", result }
 function fail(code, msg) { process.stderr.write(JSON.stringify({ id: "fake", error: { code, message: msg || "fake herdr error" } }) + "\\n"); save(); process.exit(1); }
 const cmd = args[0] + " " + args[1];
 const opt = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : null; };
+const mkPane = (paneId, tabId, wsId, cwd) => {
+  state.panes[paneId] = { pane_id: paneId, tab_id: tabId, workspace_id: wsId, foreground_cwd: cwd, agent_status: "unknown" };
+};
+const counts = (wsId) => ({
+  tab_count: Object.values(state.tabs).filter((t) => t.workspace_id === wsId).length,
+  pane_count: Object.values(state.panes).filter((p) => p.workspace_id === wsId).length,
+});
 
+if (cmd === "workspace create") {
+  const n = ++state.seq;
+  const wsId = "w" + n, tabId = wsId + ":t1", paneId = wsId + ":p1";
+  const cwd = opt("--cwd");
+  const ws = { workspace_id: wsId, label: opt("--label"), cwd: cwd, kind: "plain", agent_status: "unknown" };
+  state.workspaces[wsId] = ws;
+  state.tabs[tabId] = { tab_id: tabId, workspace_id: wsId, label: "1" };
+  mkPane(paneId, tabId, wsId, cwd);
+  if (cwd && !state.primaries[cwd]) state.primaries[cwd] = wsId;
+  ok({ workspace: { workspace_id: wsId, label: ws.label }, tab: { tab_id: tabId }, root_pane: { pane_id: paneId, cwd: cwd } });
+}
+if (cmd === "worktree list") {
+  // 0.9.0 实测形状：repo 有已打开的 primary 时带 source_workspace_id，否则字段缺失。
+  const cwd = opt("--cwd");
+  const source = { repo_root: cwd };
+  if (cwd && state.primaries[cwd]) source.source_workspace_id = state.primaries[cwd];
+  ok({ source: source, worktrees: [] });
+}
 if (cmd === "worktree create") {
+  // 与 0.9.0 实测一致：--cwd 且该 repo 还没有 primary 时，【隐式多建一个】基础 workspace。
+  let sourceId = opt("--workspace");
+  const cwd = opt("--cwd");
+  if (!sourceId && cwd) {
+    sourceId = state.primaries[cwd] || null;
+    if (!sourceId) {
+      const m = ++state.seq;
+      const baseId = "w" + m, bTab = baseId + ":t1";
+      state.workspaces[baseId] = { workspace_id: baseId, label: "repo", cwd: cwd, kind: "plain", agent_status: "unknown" };
+      state.tabs[bTab] = { tab_id: bTab, workspace_id: baseId, label: "1" };
+      mkPane(baseId + ":p1", bTab, baseId, cwd);
+      state.primaries[cwd] = baseId;
+      sourceId = baseId;
+    }
+  }
+  const repo = (sourceId && state.workspaces[sourceId]?.cwd) || cwd;
+  if (repo && sourceId && !state.primaries[repo]) state.primaries[repo] = sourceId;
   const n = ++state.seq;
   const wsId = "w" + n, tabId = wsId + ":t1", paneId = wsId + ":p1";
   const ws = {
     workspace_id: wsId,
     label: opt("--label"),
-    cwd: opt("--cwd"),
+    cwd: repo,
     kind: "worktree",
+    primary: sourceId,
     branch: opt("--branch"),
     checkout_path: statePath + "-checkout-" + wsId,
   };
   state.workspaces[wsId] = ws;
   state.tabs[tabId] = { tab_id: tabId, workspace_id: wsId, label: ws.label };
-  state.panes[paneId] = { pane_id: paneId, tab_id: tabId, workspace_id: wsId };
+  mkPane(paneId, tabId, wsId, ws.checkout_path);
   ok({ workspace: { workspace_id: wsId, label: ws.label, worktree: { checkout_path: ws.checkout_path } }, tab: { tab_id: tabId }, root_pane: { pane_id: paneId } });
 }
 if (cmd === "workspace get") {
   const ws = state.workspaces[args[2]];
-  ws ? ok({ workspace: ws }) : fail("workspace_not_found");
+  ws ? ok({ workspace: { ...ws, ...counts(args[2]) } }) : fail("workspace_not_found");
+}
+if (cmd === "workspace close") {
+  // 0.9.0 实测：primary 还有 linked 子 workspace 时，herdr 自己拒关（group 守卫）。
+  const wsId = args[2];
+  if (!state.workspaces[wsId]) fail("workspace_not_found");
+  if (Object.values(state.workspaces).some((w) => w.primary === wsId)) {
+    fail("workspace_group_close_required", "workspace has linked worktree workspaces");
+  }
+  delete state.workspaces[wsId];
+  for (const [id, t] of Object.entries(state.tabs)) if (t.workspace_id === wsId) delete state.tabs[id];
+  for (const [id, p] of Object.entries(state.panes)) if (p.workspace_id === wsId) delete state.panes[id];
+  for (const [k, v] of Object.entries(state.primaries)) if (v === wsId) delete state.primaries[k];
+  ok({ type: "ok" });
 }
 if (cmd === "tab create") {
   const n = ++state.seq;
@@ -86,6 +143,8 @@ if (cmd === "pane process-info") {
 }
 if (cmd === "agent list") ok({ agents: [] });
 if (cmd === "agent start") {
+  // 测试开关：让 agent start 必败（非重试型错误码），走启动失败的回收路径。
+  if (process.env.HG_FAKE_FAIL_AGENT_START) fail("agent_boom", "agent start disabled by test");
   const pane = opt("--pane");
   const p = state.panes[pane];
   if (!p) fail("pane_not_found");
@@ -129,11 +188,11 @@ export function setupFakeHerdr(dir, { hostWorkspace = true } = {}) {
   writeFileSync(bin, FAKE_HERDR_SOURCE);
   chmodSync(bin, 0o755);
   const statePath = join(dir, "fake-herdr-state.json");
-  const seed = { seq: 0, workspaces: {}, tabs: {}, panes: {}, calls: [] };
+  const seed = { seq: 0, workspaces: {}, tabs: {}, panes: {}, primaries: {}, calls: [] };
   if (hostWorkspace) {
-    seed.workspaces.w0 = { workspace_id: "w0", label: "orchestrator-host", kind: "plain" };
+    seed.workspaces.w0 = { workspace_id: "w0", label: "orchestrator-host", kind: "plain", agent_status: "unknown" };
     seed.tabs["w0:t0"] = { tab_id: "w0:t0", workspace_id: "w0", label: "main" };
-    seed.panes["w0:p0"] = { pane_id: "w0:p0", tab_id: "w0:t0", workspace_id: "w0" };
+    seed.panes["w0:p0"] = { pane_id: "w0:p0", tab_id: "w0:t0", workspace_id: "w0", foreground_cwd: null, agent_status: "unknown" };
   }
   writeFileSync(statePath, JSON.stringify(seed, null, 2));
   return { bin, statePath };

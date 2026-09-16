@@ -831,6 +831,7 @@ const TOOLS = [
         workspace_id: r.workspace_id ?? null,
         branch: r.branch ?? null,
         base_ref: r.base_ref ?? null,
+        base_workspace: r.base_workspace?.workspace_id ?? null,
         steps: Object.values(r.stages ?? {}).map((s) => ({ step: s.step, status: s.status })),
         created_at: r.created_at ?? null,
         completed_at: r.completed_at ?? null,
@@ -842,7 +843,7 @@ const TOOLS = [
   {
     name: "finalize_run",
     description:
-      "Formally accept a run and clean up its scene. This is the ONLY deletion verb, and it is deliberate by construction: (1) you must pass verdict='accept' plus evidence { review, acceptance } written by YOU — worker output is never parsed for a PASS; (2) for a worktree run it verifies with git that the branch is really merged into its base (merge-base --is-ancestor) and that the checkout is clean — unmerged or dirty ALWAYS refuses and keeps the scene; (3) it only touches objects registered to this run — the fox host workspace is never touched, and if foreign panes/tabs have appeared in the run's workspace it refuses to delete it; (4) the result log is persisted BEFORE anything is stopped or removed, branches are deleted with safe `git branch -d` only, and every step is recorded so a partial failure can be retried by calling again with the same run_id. cleanup: 'auto' (the configured default) removes the run's worktree+branch / its tabs; 'keep' marks the run accepted but leaves the scene for the human. Failed or unreviewed runs are never cleaned — they simply stay.",
+      "Formally accept a run and clean up its scene. This is the ONLY deletion verb, and it is deliberate by construction: (1) you must pass verdict='accept' plus evidence { review, acceptance } written by YOU — worker output is never parsed for a PASS; (2) for a worktree run it verifies with git that the branch is really merged into its base (merge-base --is-ancestor) and that the checkout is clean — unmerged or dirty ALWAYS refuses and keeps the scene; (3) it only touches objects registered to this run — the fox host workspace is never touched, and if foreign panes/tabs have appeared in the run's workspace it refuses to delete it; (4) the run's result log also carries the base repo workspace with its ownership evidence — one this run created is closed only while provably untouched (a pre-existing or shared primary is never touched); (5) the result log is persisted BEFORE anything is stopped or removed, branches are deleted with safe `git branch -d` only, and every step is recorded so a partial failure can be retried by calling again with the same run_id. cleanup: 'auto' (the configured default) removes the run's worktree+branch / its tabs; 'keep' marks the run accepted but leaves the scene for the human. Failed or unreviewed runs are never cleaned — they simply stay.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1036,7 +1037,10 @@ function createRunSpace({ container, label, branch, repo }) {
   }
 
   const made = createOrchestrationSpace({ repo, label, branch });
-  log(`space created ws=${made.workspaceId} branch=${made.branch} checkout=${made.checkoutPath}`);
+  log(
+    `space created ws=${made.workspaceId} branch=${made.branch} checkout=${made.checkoutPath} ` +
+      `base=${made.baseWorkspace?.workspaceId ?? "none"}(${made.baseWorkspace?.createdByUs ? "created" : "adopted"})`,
+  );
   return { ...made, container: "worktree" };
 }
 
@@ -1090,6 +1094,17 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
     branch: space.branch,
     base_ref: baseRef,
     repo,
+    // 附带基础 workspace 的归属证据（issue #13）：finalize 凭它决定收不收、怎么收。
+    // created_by_run=true 的只有过「未被使用」判据才关；false 是领养，绝不关。
+    base_workspace: space.baseWorkspace
+      ? {
+          workspace_id: space.baseWorkspace.workspaceId,
+          created_by_run: space.baseWorkspace.createdByUs,
+          label: space.baseWorkspace.label,
+          expected_cwd: space.baseWorkspace.expectedCwd,
+          evidence: space.baseWorkspace.evidence,
+        }
+      : null,
     status: "running",
     created_at: new Date().toISOString(),
   });

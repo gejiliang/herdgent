@@ -152,6 +152,12 @@ finalize_run({
 **先落盘，再动手**：停掉本 run 的 agent、收掉 worktree 容器、用 `git branch -d`
 删掉已合并的分支。
 
+顺带收的还有**基础 repo workspace**（issue #13）：run 建容器时若 repo 还没有已打开的
+基础 workspace，会显式建一个空 shell 并在台账与结果日志里登记归属证据。finalize 只在它
+**确是本 run 所建、且仍未被使用**（没多 tab/pane、没跑 agent、cwd 没动、没改名）时才关闭；
+你或别的 run 已经在用的基础 workspace 绝不碰——并发复用时 herdr 的 group 守卫还会再拦一道。
+被保留不是失败：日志里那一步会写明为什么留。
+
 **它只信 git 不信转述**：`merge-base --is-ancestor` 核验分支确实并入了 `base_ref`，
 checkout 脏（未提交 / 未跟踪 / 未合并路径）一律拒绝。拒绝=现场原样保留，
 你处理完（合并、commit、清理）再用同一个 `run_id` 重调——它是幂等的，
@@ -174,9 +180,9 @@ checkout 脏（未提交 / 未跟踪 / 未合并路径）一律拒绝。拒绝=�
 | 编排失败、worker 崩了 | 不调，那是排查现场 |
 
 安全边界是结构性的：`finalize_run` **只清这个 run 台账里登记的对象**——
-workspace、tab、pane、分支全部来自登记，绝不按名字去搜。容器里后来混进了
-不属于本 run 的 tab/pane（人手动加的、别的会话开的）时**拒删**并报告，由人来处置。
-别的 run、人手建的 workspace 永远不在射程内。
+workspace、tab、pane、分支、基础 workspace 全部来自登记，绝不按名字去搜，也绝不按
+「创建前后集合差」认领。容器里后来混进了不属于本 run 的 tab/pane（人手动加的、别的
+会话开的）时**拒删**并报告，由人来处置。别的 run、人手建的 workspace 永远不在射程内。
 
 失败的 run 没有「清理」一说：**未验收的 run 永远不会被自动清**，留着就是现场。
 

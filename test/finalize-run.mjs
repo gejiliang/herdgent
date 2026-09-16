@@ -5,7 +5,7 @@
 //   未合并拒删 / 脏拒删 / 外来 tab/pane 拒删 / fox 不碰宿主 workspace /
 //   keep 也标 accepted / 分支只用 -d / 先落盘再动手 / 部分失败可重试。
 // herdr 是假 CLI + 假事件 socket（test/fake-herdr.mjs）；git 用本地临时真仓库。
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -31,6 +31,7 @@ const repo = join(home, "repo");
 mkdirSync(repo);
 const git = (...args) => spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" });
 const branchExists = (name) => git("branch", "--list", name).stdout.trim() !== "";
+const branchExistsIn = (dir, name) => spawnSync("git", ["-C", dir, "branch", "--list", name], { encoding: "utf8" }).stdout.trim() !== "";
 git("init", "-b", "main");
 writeFileSync(join(repo, "a.txt"), "a\n");
 git("add", ".");
@@ -42,6 +43,25 @@ writeFileSync(join(repo, "b.txt"), "b\n");
 git("add", ".");
 git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "unmerged work");
 git("checkout", "main");
+
+// 基础 workspace（issue #13）的三个专属场景各用一个独立 repo：
+//   repo2 —— run 独占自己创建的 base，finalize 后 base 必须真关掉；
+//   repo3 —— 预存在的 base（人 / 旧 run 留下的），领养不拥有，绝不删；
+//   repo4 —— run 创建的 base 随后被「用户」改动，保留。
+const mkRepo = (name, branch) => {
+  const dir = join(home, name);
+  mkdirSync(dir);
+  const g = (...a) => spawnSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+  g("init", "-b", "main");
+  writeFileSync(join(dir, "a.txt"), "a\n");
+  g("add", ".");
+  g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init");
+  g("branch", branch);
+  return dir;
+};
+const repo2 = mkRepo("repo2", "feat/solo");
+const repo3 = mkRepo("repo3", "feat/pre");
+const repo4 = mkRepo("repo4", "feat/mod");
 
 writeFileSync(
   join(config, "profiles.json"),
@@ -61,15 +81,27 @@ const ENV = {
 const ARGS = ["--root", "orc-test"];
 const EVIDENCE = { review: "review-kimi PASS：逐条核对验收标准，无缺陷", acceptance: "我亲自核对了 diff 与测试，是要的东西" };
 
+// repo3 的【预存在】基础 workspace：在 run 跑之前就进假 herdr 的台账。
+// primaries 的键必须与 run_plan 解析后的 repo 路径一致（git 解析过的绝对路径）。
+{
+  const s = JSON.parse(readFileSync(fake.statePath, "utf8"));
+  const key = realpathSync(repo3);
+  s.workspaces.wPre = { workspace_id: "wPre", label: "repo3", cwd: key, kind: "plain", agent_status: "unknown" };
+  s.tabs["wPre:t1"] = { tab_id: "wPre:t1", workspace_id: "wPre", label: "1" };
+  s.panes["wPre:p1"] = { pane_id: "wPre:p1", tab_id: "wPre:t1", workspace_id: "wPre", foreground_cwd: key, agent_status: "unknown" };
+  s.primaries[key] = "wPre";
+  writeFileSync(fake.statePath, JSON.stringify(s, null, 2));
+}
+
 const registryFile = () => JSON.parse(readFileSync(join(state, "registry.json"), "utf8"));
 const fakeState = () => JSON.parse(readFileSync(fake.statePath, "utf8"));
 const writeFakeState = (s) => writeFileSync(fake.statePath, JSON.stringify(s, null, 2));
 const getRun = (id) => registryFile().orchestrations["orc-test"].runs[id];
 const fin = (key, run_id, extra = {}) => ({ key, name: "finalize_run", arguments: { run_id, verdict: "accept", evidence: EVIDENCE, ...extra } });
-const rexCall = (key, branch) => ({
+const rexCall = (key, branch, repoArg = repo) => ({
   key,
   name: "run_plan",
-  arguments: { label: key, branch, repo, steps: [{ id: "impl", title: "impl", profile: "test-impl", task: `do ${key}` }] },
+  arguments: { label: key, branch, repo: repoArg, steps: [{ id: "impl", title: "impl", profile: "test-impl", task: `do ${key}` }] },
 });
 
 const socketServer = await startEventSocket(socket);
@@ -84,6 +116,9 @@ try {
       rexCall("runKeep", "feat/keep"),
       rexCall("runForeign", "feat/foreign"),
       rexCall("runUnmerged", "feat/unmerged"),
+      rexCall("runSolo", "feat/solo", repo2),
+      rexCall("runPre", "feat/pre", repo3),
+      rexCall("runMod", "feat/mod", repo4),
       {
         key: "runFox",
         name: "run_plan",
@@ -99,9 +134,15 @@ try {
     ],
   });
   const ids = Object.fromEntries(
-    ["runA", "runB", "runKeep", "runForeign", "runUnmerged", "runFox"].map((k) => [k, setup[k].run_id]),
+    ["runA", "runB", "runKeep", "runForeign", "runUnmerged", "runFox", "runSolo", "runPre", "runMod"].map((k) => [k, setup[k].run_id]),
   );
-  check("六个 run 都跑完", Object.values(setup).every((x) => x.completed === true), JSON.stringify(Object.keys(ids)));
+  check("九个 run 都跑完", Object.values(setup).every((x) => x.completed === true), JSON.stringify(Object.keys(ids)));
+
+  // 共享 repo 的五个 run：runA 建 base，其余领养；独立 repo 的三个各自建各自的（runPre 领养）。
+  check("runA 创建共享 base", getRun(ids.runA).base_workspace?.created_by_run === true);
+  check("runB 领养共享 base", getRun(ids.runB).base_workspace?.created_by_run === false && getRun(ids.runB).base_workspace?.workspace_id === getRun(ids.runA).base_workspace?.workspace_id);
+  check("runSolo 创建独占 base", getRun(ids.runSolo).base_workspace?.created_by_run === true);
+  check("runPre 领养预存在的 wPre", getRun(ids.runPre).base_workspace?.created_by_run === false && getRun(ids.runPre).base_workspace?.workspace_id === "wPre", JSON.stringify(getRun(ids.runPre).base_workspace));
 
   // ---- 拒绝路径：未合并 / 缺证据 / 坏 verdict / 非字符串证据 ----
   const refuse = await mcpProbe({
@@ -199,6 +240,24 @@ try {
     fakeState().calls.filter((c) => c.startsWith("logcheck")).join(","),
   );
 
+  // ---- 基础 workspace（issue #13）：共享 base 的归属与 group 守卫 ----
+  const sharedBase = getRun(ids.runA).base_workspace.workspace_id;
+  const baseStepsA = (happy.f.steps ?? []).filter((s) => s.action === "close_base_workspace");
+  check(
+    "runA 的共享 base 被 group 守卫保留（runKeep/runUnmerged 还挂着）",
+    baseStepsA.length === 1 && baseStepsA[0].status === "kept" && /linked worktree/.test(baseStepsA[0].detail ?? ""),
+    JSON.stringify(baseStepsA),
+  );
+  check("共享 base 还在", !!fakeState().workspaces[sharedBase]);
+  const logBase = JSON.parse(readFileSync(logPath, "utf8")).base_workspace;
+  check(
+    "run 日志保留 base 归属证据",
+    logBase?.workspace_id === sharedBase && logBase?.created_by_run === true && !!logBase?.evidence,
+    JSON.stringify(logBase).slice(0, 140),
+  );
+  const baseStepsB = (cleaned.f.steps ?? []).filter((s) => s.action === "close_base_workspace");
+  check("runB 领养 base → skipped 不砸", baseStepsB.length === 1 && baseStepsB[0].status === "skipped", JSON.stringify(baseStepsB));
+
   const again = await mcpProbe({ args: ARGS, env: { ...ENV, HG_FAKE_RUN_LOG: happyLog }, calls: [fin("f", ids.runA)] });
   check("幂等重调不炸", again.f.isError !== true && again.f.cleanup_status === "done", JSON.stringify(again.f).slice(0, 120));
   check("重调认得已完成（already gone）", (again.f.steps ?? []).some((s) => String(s.detail).includes("already gone")), JSON.stringify(again.f.steps).slice(0, 160));
@@ -211,6 +270,50 @@ try {
   check("keep 的 worker 也出闸（现场留着）", Object.values(registryFile().sessions).find((s) => s.run_id === ids.runKeep)?.status === "terminated");
   const flip = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runKeep, { cleanup: "auto" })] });
   check("keep→auto 翻案后重新核验并收干净", flip.f.cleanup_status === "done" && !branchExists("feat/keep"), JSON.stringify(flip.f).slice(0, 120));
+
+  // ---- 基础 workspace（issue #13）：独占 / 预存在 / 被用户改动 ----
+  const solo = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runSolo)] });
+  const soloBase = getRun(ids.runSolo).base_workspace.workspace_id;
+  check("runSolo finalize done", solo.f.cleanup_status === "done", JSON.stringify(solo.f).slice(0, 160));
+  check(
+    "runSolo 独占的 base 一并关闭",
+    (solo.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "done"),
+    JSON.stringify(solo.f.steps),
+  );
+  check("runSolo 的 base 真没了", !fakeState().workspaces[soloBase], Object.keys(fakeState().workspaces).join(","));
+  check("runSolo 分支已删", !branchExistsIn(repo2, "feat/solo"));
+
+  const pre = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runPre)] });
+  check(
+    "预存在 base → skipped 且 finalize 仍 done",
+    pre.f.cleanup_status === "done" && (pre.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped"),
+    JSON.stringify(pre.f.steps),
+  );
+  check("预存在的 wPre 原样保留", !!fakeState().workspaces.wPre && !!fakeState().tabs["wPre:t1"]);
+  check(
+    "runPre 自己的容器与分支照收",
+    !fakeState().workspaces[getRun(ids.runPre).workspace_id] && !branchExistsIn(repo3, "feat/pre"),
+  );
+
+  {
+    // 「用户」在 runMod 的 base 里开了一个 tab：base 必须保留，run 自己的容器照收
+    const s = fakeState();
+    const baseId = getRun(ids.runMod).base_workspace.workspace_id;
+    s.tabs["wX:tUser"] = { tab_id: "wX:tUser", workspace_id: baseId, label: "人开的 tab" };
+    writeFakeState(s);
+  }
+  const mod = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runMod)] });
+  const modBase = getRun(ids.runMod).base_workspace.workspace_id;
+  check(
+    "base 被动过 → kept，cleanup 仍 done",
+    mod.f.cleanup_status === "done" && (mod.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "kept"),
+    JSON.stringify(mod.f.steps),
+  );
+  check("被动过的 base 与人的 tab 都在", !!fakeState().workspaces[modBase] && !!fakeState().tabs["wX:tUser"]);
+  check(
+    "runMod 自己的容器与分支照收",
+    !fakeState().workspaces[getRun(ids.runMod).workspace_id] && !branchExistsIn(repo4, "feat/mod"),
+  );
 
   // ---- fox：只收本 run 的 tab，宿主 workspace 一个指头都不碰 ----
   {
@@ -232,6 +335,7 @@ try {
 
   // ---- 跨 run 分离 ----
   check("没被动过的 run 现场完好", !!fakeState().workspaces[getRun(ids.runUnmerged).workspace_id] && branchExists("feat/unmerged"));
+  check("共享 base 留到最后（runUnmerged 永不 finalize）", !!fakeState().workspaces[sharedBase]);
   check("分支删除只用 -d", !fakeState().calls.some((c) => c.includes("branch -D") || c.includes("branch --force")));
 } finally {
   await closeSocket(socketServer);

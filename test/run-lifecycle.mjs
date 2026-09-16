@@ -123,6 +123,33 @@ try {
   check("两次 run 各自独立容器", ws1 && ws2 && ws1 !== ws2, `${ws1} vs ${ws2}`);
   const worktreeCreates = fakeState().calls.filter((c) => c.startsWith("worktree create"));
   check("每个 run 都真建了自己的 worktree", worktreeCreates.length === 2, worktreeCreates.join(" | "));
+
+  // ---- 基础 workspace（issue #13）：显式 source + 归属证据 ----
+  const baseCreates = fakeState().calls.filter((c) => c.startsWith("workspace create"));
+  check("基础 workspace 只显式建过一次（第二个 run 领养）", baseCreates.length === 1, baseCreates.join(" | "));
+  check("worktree create 一律走显式 --workspace source", worktreeCreates.every((c) => c.includes("--workspace")), worktreeCreates.join(" | "));
+  const base1 = getRun(run1).base_workspace;
+  const base2 = getRun(run2).base_workspace;
+  check(
+    "run1 登记了自己创建的基础 workspace 与证据",
+    base1?.created_by_run === true && !!base1.workspace_id && !!base1.label && !!base1.expected_cwd && !!base1.evidence,
+    JSON.stringify(base1),
+  );
+  check(
+    "run2 领养同一个基础 workspace 且不拥有",
+    base2?.created_by_run === false && base2.workspace_id === base1.workspace_id && !!base2.evidence,
+    JSON.stringify(base2),
+  );
+  check(
+    "两个 run 的 worktree source 都是那个基础 workspace",
+    worktreeCreates.every((c) => c.includes(`--workspace ${base1.workspace_id}`)),
+    worktreeCreates.join(" | "),
+  );
+  check(
+    "list_runs 报得出 base 归属（rex 有、fox 没有）",
+    (r.runs.runs ?? []).every((x) => (x.container === "worktree" ? !!x.base_workspace : x.base_workspace == null)),
+    JSON.stringify((r.runs.runs ?? []).map((x) => [x.container, x.base_workspace])),
+  );
   // repo 以 git 解析出的主 checkout 为准（macOS 上 /var → /private/var，比 realpath 后的路径）
   check("run 台账登记了分支与 repo", getRun(run1).branch === "feat/t1" && getRun(run1).repo === realpathSync(repo), JSON.stringify(getRun(run1)).slice(0, 100));
   check("run 终态落盘", getRun(run1).status === "completed" && Array.isArray(getRun(run1).results), getRun(run1).status);
@@ -149,7 +176,7 @@ try {
   check("fox 落在发起者的 workspace", foxRun.workspace_id === "w0", foxRun.workspace_id);
   const foxTabs = Object.values(fakeState().tabs).filter((t) => t.workspace_id === "w0");
   check("fox 的 tab 名带编排名与环节", foxTabs.some((t) => t.label.includes("fox · 调研缓存 · 1 survey")), foxTabs.map((t) => t.label).join(" | "));
-  check("fox 没有新建 workspace", Object.keys(fakeState().workspaces).length === 3, Object.keys(fakeState().workspaces).join(","));
+  check("fox 没有新建 workspace（host+base+两个 worktree）", Object.keys(fakeState().workspaces).length === 4, Object.keys(fakeState().workspaces).join(","));
 
   // ---- 裸 spawn 与错误归属 ----
   check("裸 spawn 被拒", r.bare.isError && r.bare.error === "run_id_required", JSON.stringify(r.bare));
