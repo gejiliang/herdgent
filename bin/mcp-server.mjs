@@ -38,6 +38,7 @@ const {
   findWorker,
   sendAndConfirm,
   readWorkerResult,
+  provePaneUnused,
 } = await import("../lib/worker.mjs");
 const { SUPPORTED } = await import("../lib/harness/index.mjs");
 const { allProfiles, applyProfile } = await import("../lib/profiles.mjs");
@@ -232,7 +233,7 @@ const TOOLS = [
   {
     name: "spawn_worker",
     description:
-      "Append a worker to an EXISTING run — this is the retry / rework / reinforce path, NOT a way to start new work. New work goes through run_plan / run_preset, which create the run and its container. You must pass run_id + step_id (see list_runs / list_workers): the worker lands as a new pane in that step's existing tab, in the run's container — no new workspace, no new worktree, and its ownership stays with the run so finalize_run can account for it. A bare spawn without run_id/step_id is refused on purpose: it used to scatter one workspace per worker outside any run's reach. `profile` decides HOW it runs (harness, model, prompt, permissions) and is required. Name the worker for the WORK it does, never for the vendor.",
+      "Append a worker to an EXISTING run — this is the retry / rework / reinforce path, NOT a way to start new work. New work goes through run_plan / run_preset, which create the run and its container. You must pass run_id + step_id (see list_runs / list_workers): the worker lands in that step's existing tab, in the run's container — no new workspace, no new worktree. If the step never started (the plan stopped before it), its pre-built pane is REUSED when it is provably still an untouched shell; otherwise the worker splits a new pane beside it. Either way ownership stays with the run so finalize_run can account for it. A bare spawn without run_id/step_id is refused on purpose: it used to scatter one workspace per worker outside any run's reach. `profile` decides HOW it runs (harness, model, prompt, permissions) and is required. Name the worker for the WORK it does, never for the vendor.",
     inputSchema: {
       type: "object",
       properties: {
@@ -310,16 +311,41 @@ const TOOLS = [
         );
       }
 
-      // 落回原 tab：追加的 worker 是这个环节的一个新 pane，与原班人马同一个
-      // checkout、同一个分支。split 方向按 sibling 数交替，与原布局规则一致。
+      // 落回原 tab：追加的 worker 与原班人马同一个 checkout、同一个分支。
       const siblings = registry
         .list()
         .filter((w) => w.root === ROOT && w.run_id === run.run_id && w.step_id === args.step_id);
-      let paneId;
-      try {
-        paneId = splitForParallel(stage.root_pane_id, siblings.length);
-      } catch (e) {
-        throw explainHerdrFailure(e, "extend the step's tab");
+
+      // issue #14：这个环节从没派过 worker 时（计划提前停在它之前），它的预建
+      // root pane 还是本 run 的空壳——【优先复用】而不是在旁边再 split 一个。
+      // 旧行为一味 split：原 root 不入 worker 登记也不是 stray，finalize 把它
+      // 误判成外来 pane 而拒清整个容器。复用前必须证明它至今未被使用
+      //（provePaneUnused：无 agent、停在 shell 提示符、cwd 未被改动）；
+      // 证明不了就保守 split——root 的归属仍由 stage 记录带着，finalize 现查时
+      // 被人用过的 root 会被拒删而不是误删。
+      const rootTaken = registry
+        .list()
+        .some((w) => w.root === ROOT && w.run_id === run.run_id && w.pane_id === stage.root_pane_id);
+      let paneId = null;
+      if (!rootTaken) {
+        const probe = provePaneUnused({ paneId: stage.root_pane_id, expectedCwd: stage.root_pane_cwd ?? null });
+        if (probe.status === "unused") {
+          paneId = stage.root_pane_id;
+          log(`append reuses pre-built stage root pane=${paneId} step=${args.step_id} run=${run.run_id}`);
+        } else {
+          log(
+            `append splits beside stage root pane=${stage.root_pane_id} step=${args.step_id} ` +
+              `run=${run.run_id}: ${probe.status} (${probe.detail})`,
+          );
+        }
+      }
+      if (!paneId) {
+        // split 方向按 sibling 数交替，与原布局规则一致。
+        try {
+          paneId = splitForParallel(stage.root_pane_id, siblings.length);
+        } catch (e) {
+          throw explainHerdrFailure(e, "extend the step's tab");
+        }
       }
 
       let entry;
@@ -349,11 +375,15 @@ const TOOLS = [
       } catch (e) {
         // split 出来的 pane 空转了：登记为 run 名下的 stray，finalize 的归属扫描
         // 认得它，不会被误判成「外来 pane」而拒删。读-改-写在一把锁里。
-        registry.update((reg) => {
-          const r = reg.orchestrations[ROOT]?.runs?.[run.run_id];
-          if (!r) return;
-          r.stray_panes = [...(r.stray_panes ?? []), { pane_id: paneId, tab_id: tabId }];
-        });
+        // 复用的预建 root 不登记 stray——它本来就是 stage 记录里的对象，登记成
+        // stray 反而会让 finalize 跳过「未被使用」现查直接认 owned。
+        if (paneId !== stage.root_pane_id) {
+          registry.update((reg) => {
+            const r = reg.orchestrations[ROOT]?.runs?.[run.run_id];
+            if (!r) return;
+            r.stray_panes = [...(r.stray_panes ?? []), { pane_id: paneId, tab_id: tabId }];
+          });
+        }
         throw explainHerdrFailure(e, "start a worker");
       }
 
@@ -1153,12 +1183,13 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
 
   // 标签与 root pane 存进 run 记录：状态要能【回退】（review 打回 impl 时 impl 那个
   // tab 从 ✓ 退回 ⋯），回退发生在这个 run_plan 返回【之后】，局部变量那时已经没了；
-  // root_pane_id 是 spawn_worker 追加 worker 时 split 的落点。
+  // root_pane_id 是 spawn_worker 追加 worker 时 split / 复用的落点（issue #14），
+  // root_pane_cwd 是它的创建回执 cwd——provePaneUnused 拿它证明预建 root 没被人动过。
   registry.putRun(ROOT, id, {
     stages: Object.fromEntries(
       stages.map((s) => [
         s.tabId,
-        { label: s.baseLabel, step: s.stepId, status: "pending", root_pane_id: s.rootPaneId },
+        { label: s.baseLabel, step: s.stepId, status: "pending", root_pane_id: s.rootPaneId, root_pane_cwd: s.rootPaneCwd ?? null },
       ]),
     ),
   });

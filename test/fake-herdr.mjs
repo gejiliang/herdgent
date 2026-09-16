@@ -102,11 +102,15 @@ if (cmd === "workspace close") {
   ok({ type: "ok" });
 }
 if (cmd === "tab create") {
+  // 0.9.0 实测形状：root_pane 带 cwd / foreground_cwd（新 tab 继承 workspace 的 cwd），
+  // pane 行带 agent_status。worktree workspace 的新 tab 落在 checkout 里。
   const n = ++state.seq;
   const tabId = "t" + n, paneId = "p" + n;
-  state.tabs[tabId] = { tab_id: tabId, workspace_id: opt("--workspace"), label: opt("--label") };
-  state.panes[paneId] = { pane_id: paneId, tab_id: tabId, workspace_id: opt("--workspace") };
-  ok({ tab: { tab_id: tabId }, root_pane: { pane_id: paneId } });
+  const wsId = opt("--workspace");
+  const cwd = state.workspaces[wsId]?.checkout_path ?? state.workspaces[wsId]?.cwd ?? null;
+  state.tabs[tabId] = { tab_id: tabId, workspace_id: wsId, label: opt("--label") };
+  state.panes[paneId] = { pane_id: paneId, tab_id: tabId, workspace_id: wsId, foreground_cwd: cwd, agent_status: "unknown" };
+  ok({ tab: { tab_id: tabId }, root_pane: { pane_id: paneId, cwd: cwd } });
 }
 if (cmd === "tab rename") {
   const t = state.tabs[args[2]];
@@ -139,7 +143,10 @@ if (cmd === "pane split") {
   ok({ pane: { pane_id: paneId } });
 }
 if (cmd === "pane process-info") {
-  ok({ process_info: { shell_pid: 42, foreground_processes: [{ name: "zsh" }] } });
+  // 默认是空 shell 提示符；测试可往 state.panes[id].foreground 注入别的
+  // 前台进程（vim、构建……），模拟「人在用这个 pane」。
+  const p = state.panes[opt("--pane")];
+  ok({ process_info: { shell_pid: 42, foreground_processes: p?.foreground ?? [{ name: "zsh" }] } });
 }
 if (cmd === "agent list") ok({ agents: [] });
 if (cmd === "agent start") {
