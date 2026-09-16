@@ -160,7 +160,22 @@ writeFileSync(
         harness: "claude",
       },
     },
-    orchestrations: { "orc-test": { root: "orc-test", max_workers: 6 } },
+    orchestrations: {
+      "orc-test": {
+        root: "orc-test",
+        max_workers: 6,
+        runs: {
+          "run-t1": {
+            run_id: "run-t1",
+            root: "orc-test",
+            status: "running",
+            container: "worktree",
+            workspace_id: "w8",
+            stages: { t1: { label: "1 impl", step: "impl", status: "done", root_pane_id: "w8:p9" } },
+          },
+        },
+      },
+    },
   }),
 );
 
@@ -296,11 +311,15 @@ try {
     },
     calls: [
       { key: "status", name: "herdr_status" },
-      { key: "spawn", name: "spawn_worker", arguments: { title: "must-not-start", profile: "impl-kimi", task: "must never run" } },
+      // 裸 spawn 先撞归属校验——根本不碰 herdr，server 死不死都该是 run_id_required。
+      { key: "bareSpawn", name: "spawn_worker", arguments: { title: "must-not-start", profile: "impl-kimi", task: "must never run" } },
+      // 带 run_id + step_id 的追加会走到建 pane 那一步，才遇得到 herdr。
+      { key: "spawn", name: "spawn_worker", arguments: { run_id: "run-t1", step_id: "impl", title: "must-not-start", profile: "impl-kimi", task: "must never run" } },
     ],
   });
   check("herdr_status 说明 server 没跑", noServer.calls.status.isError && noServer.calls.status.error === "server_not_running" && noServer.calls.status.message.includes("herdr server is not running"), JSON.stringify(noServer.calls.status));
-  check("spawn 说明 server 没跑", noServer.calls.spawn.isError && noServer.calls.spawn.error === "server_not_running" && noServer.calls.spawn.message.includes("herdr server is not running"), JSON.stringify(noServer.calls.spawn));
+  check("裸 spawn 被拒且指向 run_plan", noServer.calls.bareSpawn.isError && noServer.calls.bareSpawn.error === "run_id_required", JSON.stringify(noServer.calls.bareSpawn));
+  check("追加 spawn 说明 server 没跑", noServer.calls.spawn.isError && noServer.calls.spawn.error === "server_not_running" && noServer.calls.spawn.message.includes("herdr server is not running"), JSON.stringify(noServer.calls.spawn));
 } finally {
   rmSync(state, { recursive: true, force: true });
 }

@@ -7,7 +7,6 @@
 //   node test/integration-spawn.mjs
 //
 // 会真的起 N 个 harness 会话（消耗订阅额度），跑完自动回收 workspace / worktree / 分支。
-import { execFileSync } from "node:child_process";
 import { startManagedSession, reclaimSession, findWorker } from "../lib/worker.mjs";
 import * as registry from "../lib/registry.mjs";
 
@@ -63,18 +62,11 @@ const rekeyed = spawned.filter((s) => findWorker(s.slug)?.harness_session_id).le
 console.log(`SessionStart 钩子回填 session id：${rekeyed}/${spawned.length}`);
 
 // ---- 回收 ----
+// reclaimSession 自带分支删除（只用安全的 -d：probe worker 不提交，分支与 main 无分歧，
+// -d 必过；过不了说明有未并提交，那正该留给人看）。
 console.log("\n回收中…");
 for (const s of spawned) {
   const steps = reclaimSession(s);
-  // worktree remove 【不删分支】——不补这一步，每次编排都在用户仓库里留一个分支。
-  if (s.worktree_branch) {
-    try {
-      execFileSync("git", ["branch", "-D", s.worktree_branch], { cwd: REPO, stdio: "pipe" });
-      steps.push("branch_deleted");
-    } catch (e) {
-      steps.push(`branch_delete_failed:${String(e.stderr || e.message).trim().slice(0, 60)}`);
-    }
-  }
   console.log(`  ${s.slug} ${steps.join(" ")}`);
 }
 

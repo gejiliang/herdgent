@@ -9,7 +9,7 @@
     "node": ">=20.11"
   },
   "scripts": {
-    "test": "node test/concurrent-registry.mjs && node test/identity.mjs && node test/presets.mjs && node test/profiles.mjs && node test/orchestration-settings.mjs && node test/session-start.mjs && node test/stages.mjs && node test/liveness.mjs && node test/plan-output-retry.mjs && node test/opening-prompt.mjs && node test/argv-terminator.mjs && node test/send-and-confirm.mjs && node test/start-not-ready.mjs",
+    "test": "node test/concurrent-registry.mjs && node test/identity.mjs && node test/presets.mjs && node test/profiles.mjs && node test/orchestration-settings.mjs && node test/session-start.mjs && node test/stages.mjs && node test/liveness.mjs && node test/plan-output-retry.mjs && node test/opening-prompt.mjs && node test/argv-terminator.mjs && node test/send-and-confirm.mjs && node test/start-not-ready.mjs && node test/run-lifecycle.mjs && node test/finalize-run.mjs",
     "install-local": "node bin/install.mjs"
   }
 }

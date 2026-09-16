@@ -6,7 +6,7 @@
 //
 // state-dir 必须显式传：HERDR_PLUGIN_STATE_DIR 只注入插件命令，
 // 【不会】传进插件启动的会话，而这个进程是被那个会话拉起来的（findings 第五节）。
-import { appendFileSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { createServer } from "../lib/mcp.mjs";
@@ -26,8 +26,8 @@ if (stateDirArg) process.env.HERDGENT_STATE_DIR = stateDirArg;
 const registry = await import("../lib/registry.mjs");
 const { workflowsRoot } = await import("../lib/paths.mjs");
 const { cleanupAfterAccept } = await import("../lib/config.mjs");
+const { finalizeRun } = await import("../lib/finalize.mjs");
 const {
-  startManagedSession,
   startAgentInPane,
   createOrchestrationSpace,
   openStageTab,
@@ -129,20 +129,41 @@ function explainHerdrFailure(error, action) {
   );
 }
 
-function startWorkerSession(options) {
-  try {
-    return startManagedSession(options);
-  } catch (e) {
-    throw explainHerdrFailure(e, "start a worker");
-  }
-}
-
 // 跑一个外部命令拿文本，失败一律返回 null。给取 git diff 用——
 // 问的不是 herdr，不该借用 herdr 的错误分类。
 function runSafe(argv) {
   const r = spawnSync(argv[0], argv.slice(1), { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
   if (r.error || r.status !== 0) return null;
   return r.stdout || "";
+}
+
+// repo 必须【明确可核对】：worktree 建错仓库是不可逆的狼藉，而「编排者的 cwd」
+// 可能是任何地方——主 checkout、某个 worktree、甚至别的项目。所以：
+//   · 路径不存在 → 直接拒；
+//   · 解析到【主 checkout】（--git-common-dir 的父目录），从 worktree 里起的会话
+//     不会在 worktree 里面再开 worktree；
+//   · rex 要建分支，必须是 git 仓库；fox 只读，非 git 目录也能跑。
+// workspace 管理员（人）指定项目 repo 的两条路：MCP 启动 flag --repo，或 run_plan 的 repo 参数。
+function resolveRepo(dir, { requireGit }) {
+  const cwd = String(dir || "").trim();
+  if (!cwd || !existsSync(cwd)) {
+    throw Object.assign(
+      new Error(`repo path '${cwd || "(unset)"}' does not exist — pass the project repo explicitly, never guess`),
+      { code: "repo_not_found" },
+    );
+  }
+  const out = runSafe(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const gitDir = (out || "").trim();
+  if (!gitDir) {
+    if (requireGit) {
+      throw Object.assign(
+        new Error(`'${cwd}' is not a git repository — a rex run creates a worktree and branch, so it needs one`),
+        { code: "repo_not_git" },
+      );
+    }
+    return cwd;
+  }
+  return gitDir.replace(/\/\.git\/?$/, "") || gitDir;
 }
 
 // 对外的 worker 句柄用 slug，不用 registry 的 key：
@@ -157,6 +178,8 @@ function publicView(s) {
     // status 是【归属】（还在不在这次编排里），agent_status 是【活儿】
     // （working / idle / done / blocked，herdr 现报的）。两件事，两格。
     agent_status: s.agent_status ?? null,
+    run_id: s.run_id ?? null,
+    step_id: s.step_id ?? null,
     workspace_id: s.workspace_id,
     tab_id: s.tab_id,
     pane_id: s.pane_id,
@@ -192,15 +215,30 @@ function mustFindWorker(workerId) {
   return s;
 }
 
+// run 的归属边界与 worker 相同：只认本 root 名下的 run。别的项目的 run
+// 就算猜对了 id 也查无此人——finalize 是破坏性动词，边界必须是结构性的。
+function mustFindRun(runId) {
+  const run = registry.getRun(ROOT, runId);
+  if (!run) {
+    throw Object.assign(
+      new Error(`no run '${runId}' in this orchestration — use list_runs to see this project's runs`),
+      { code: "run_not_found" },
+    );
+  }
+  return run;
+}
+
 const TOOLS = [
   {
     name: "spawn_worker",
     description:
-      "Start a coding agent in its own herdr workspace and hand it a task. Returns immediately with a worker handle — the agent keeps running. `profile` decides everything about HOW it runs (harness, model, prompt, permissions) and is required; you choose the role, not the parts. Give `branch` to isolate the work in a git worktree (do this for anything that writes code); omit it for read-only work like review or exploration. Name the worker for the WORK it does (e.g. 'auth-refactor'), never for the vendor ('claude', 'worker').",
+      "Append a worker to an EXISTING run — this is the retry / rework / reinforce path, NOT a way to start new work. New work goes through run_plan / run_preset, which create the run and its container. You must pass run_id + step_id (see list_runs / list_workers): the worker lands as a new pane in that step's existing tab, in the run's container — no new workspace, no new worktree, and its ownership stays with the run so finalize_run can account for it. A bare spawn without run_id/step_id is refused on purpose: it used to scatter one workspace per worker outside any run's reach. `profile` decides HOW it runs (harness, model, prompt, permissions) and is required. Name the worker for the WORK it does, never for the vendor.",
     inputSchema: {
       type: "object",
       properties: {
-        title: { type: "string", description: "Short task label shown in the herdr UI, e.g. auth-refactor" },
+        run_id: { type: "string", description: "Run to append to (from run_plan / run_preset / list_runs)" },
+        step_id: { type: "string", description: "Step inside that run; the worker joins that step's tab" },
+        title: { type: "string", description: "Short task label shown in the herdr UI, e.g. auth-refactor-fix" },
         profile: {
           type: "string",
           description:
@@ -209,15 +247,44 @@ const TOOLS = [
         task: { type: "string", description: "The full instruction handed to the agent as its opening prompt" },
         purpose: {
           type: "string",
-          description: "What kind of work this is: implement, review, explore, or search. Recorded and displayed; herdgent does not interpret it.",
+          description: "What kind of work this is: implement, review, explore, or search. Recorded and displayed; herdgent does not interpret it. Defaults to the step id.",
         },
-        branch: { type: "string", description: "Git branch name; when given, the worker runs in its own git worktree" },
-        cwd: { type: "string", description: "Repository path; defaults to the orchestration's repo" },
       },
-      required: ["title", "task", "profile"],
+      required: ["run_id", "step_id", "title", "task", "profile"],
     },
     handler: async (args) => {
       assertCanSpawn();
+      if (!args.run_id || !args.step_id) {
+        throw Object.assign(
+          new Error(
+            "spawn_worker appends to an existing run and needs run_id + step_id (see list_runs). " +
+              "To start NEW work, use run_plan or run_preset — they create the run and its container.",
+          ),
+          { code: "run_id_required" },
+        );
+      }
+      const run = mustFindRun(args.run_id);
+      if (run.status === "accepted") {
+        throw Object.assign(
+          new Error(`run '${run.run_id}' is already accepted and finalized — start a new run with run_plan instead of reviving it`),
+          { code: "run_finalized" },
+        );
+      }
+      const stageEntry = Object.entries(run.stages ?? {}).find(([, s]) => s.step === args.step_id);
+      if (!stageEntry) {
+        const known = Object.values(run.stages ?? {}).map((s) => s.step);
+        throw Object.assign(
+          new Error(`no step '${args.step_id}' in run '${run.run_id}' (steps: ${known.join(", ") || "none"})`),
+          { code: "step_not_found" },
+        );
+      }
+      const [tabId, stage] = stageEntry;
+      if (!stage.root_pane_id) {
+        throw Object.assign(
+          new Error(`step '${args.step_id}' in run '${run.run_id}' has no live tab handle on record — it predates run-level records; send to its existing workers or start a new run`),
+          { code: "step_not_extendable" },
+        );
+      }
       const spec = applyProfile(args);
       const harness = spec.harness;
       if (!SUPPORTED.includes(harness)) {
@@ -227,9 +294,7 @@ const TOOLS = [
         );
       }
 
-      // 闸在 spawn 前查，不在 registry 里做——登记发生在 startManagedSession 内部，
-      // 那时容器已经建好了，再拒绝就得回滚。
-      //
+      // 闸在 spawn 前查，不在 registry 里做——登记发生在容器建好之后，再拒绝就得回滚。
       // 数之前先跟 herdr 对账：registry 的状态是缓存，跑完/死掉的 worker 不对账
       // 就永远算 live，闸会被幽灵记录一点点堵死（FIXME #1）。
       reconcileLive(ROOT);
@@ -245,21 +310,55 @@ const TOOLS = [
         );
       }
 
-      const entry = startWorkerSession({
-        cwd: args.cwd || REPO,
-        task: args.task,
-        harness,
-        role: "worker",
-        root: ROOT,
-        parent: ROOT,
-        title: args.title,
-        purpose: args.purpose || null,
-        branch: args.branch || null,
-        yolo: !!spec.yolo,
-        model: spec.model || null,
-        effort: spec.effort || null,
-        readOnly: !!spec.read_only,
-      });
+      // 落回原 tab：追加的 worker 是这个环节的一个新 pane，与原班人马同一个
+      // checkout、同一个分支。split 方向按 sibling 数交替，与原布局规则一致。
+      const siblings = registry
+        .list()
+        .filter((w) => w.root === ROOT && w.run_id === run.run_id && w.step_id === args.step_id);
+      let paneId;
+      try {
+        paneId = splitForParallel(stage.root_pane_id, siblings.length);
+      } catch (e) {
+        throw explainHerdrFailure(e, "extend the step's tab");
+      }
+
+      let entry;
+      try {
+        entry = startAgentInPane({
+          paneId,
+          cwd: run.checkout_path || run.repo || REPO,
+          task: args.task,
+          harness,
+          role: "worker",
+          root: ROOT,
+          parent: ROOT,
+          runId: run.run_id,
+          stepId: args.step_id,
+          title: args.title,
+          purpose: args.purpose || args.step_id,
+          branch: run.branch || null,
+          repo: run.repo || null,
+          workspaceId: run.workspace_id || null,
+          tabId,
+          yolo: !!spec.yolo,
+          model: spec.model || null,
+          effort: spec.effort || null,
+          readOnly: !!spec.read_only,
+          prompt: spec.prompt || null,
+        });
+      } catch (e) {
+        // split 出来的 pane 空转了：登记为 run 名下的 stray，finalize 的归属扫描
+        // 认得它，不会被误判成「外来 pane」而拒删。读-改-写在一把锁里。
+        registry.update((reg) => {
+          const r = reg.orchestrations[ROOT]?.runs?.[run.run_id];
+          if (!r) return;
+          r.stray_panes = [...(r.stray_panes ?? []), { pane_id: paneId, tab_id: tabId }];
+        });
+        throw explainHerdrFailure(e, "start a worker");
+      }
+
+      // 这个环节又在跑了：tab 后缀从 ✓ 退回 ⋯（与 send_to_worker 的返工同一条路径）。
+      markStageRunning(ROOT, tabId);
 
       const after = registry.countLive(ROOT);
       const result = {
@@ -269,16 +368,14 @@ const TOOLS = [
         limit,
         live_across_all_orchestrations: after.global,
       };
-      // 全局数不做硬拦截（「本编排只起了 2 个却被拒」会让人莫名其妙），
-      // 但机器上一共开着多少必须一路报到 orchestrator 面前。
       const warnings = [];
       if (after.global > limit) {
         warnings.push(`${after.global} agents are live across all orchestrations on this machine`);
       }
-      if (spec.profile_wants_branch && !args.branch) {
+      if (spec.profile_wants_branch && !run.branch) {
         warnings.push(
-          `profile '${spec.profile_applied}' is an implementer but no branch was given — ` +
-            `it will write directly in the orchestration repo instead of an isolated worktree`,
+          `profile '${spec.profile_applied}' is an implementer but run '${run.run_id}' has no branch (tab container) — ` +
+            `it will work directly in the repo instead of an isolated worktree`,
         );
       }
       if (warnings.length) result.warning = warnings.join("; ");
@@ -393,7 +490,7 @@ const TOOLS = [
   {
     name: "run_plan",
     description:
-      "Run an orchestration you assembled yourself. The whole run lives in ONE container decided by `mode`: 'rex' (default, anything that writes code) gets a git worktree workspace with its own branch; 'fox' (read-only research) just adds tabs to your current workspace. Either way each step becomes a tab, and parallel workers inside a step become panes in that tab — the human sees one container per orchestration, not scattered workspaces. All workers share that worktree and branch, so when a step runs several writers, give each one a disjoint slice of the work. Steps run in ORDER; within one step, giving `task` an array spawns that many workers IN PARALLEL, and giving `profile` an array runs the SAME task on several vendors (that is how cross-vendor review is done). Decide the shape from the size of the job — a one-file fix needs one implementer and one reviewer; a refactor across modules may want several implementers on separate branches and three reviewers from different vendors. Each step names a profile (see list_profiles), which already carries the harness, model, prompt and permissions. Blocks until the whole plan finishes.",
+      "Run an orchestration you assembled yourself. Every call creates a NEW run with its own ONE container decided by `mode`: 'rex' (default, anything that writes code) gets a fresh git worktree workspace with its own branch; 'fox' (read-only research) just adds this run's tabs to your current workspace (the workspace itself is never touched). Either way each step becomes a tab, and parallel workers inside a step become panes in that tab — the human sees one container per run, not scattered workspaces. All workers share that worktree and branch, so when a step runs several writers, give each one a disjoint slice of the work. Steps run in ORDER; within one step, giving `task` an array spawns that many workers IN PARALLEL, and giving `profile` an array runs the SAME task on several vendors (that is how cross-vendor review is done). Decide the shape from the size of the job — a one-file fix needs one implementer and one reviewer; a refactor across modules may want several implementers and three reviewers from different vendors. Each step names a profile (see list_profiles), which already carries the harness, model, prompt and permissions. Blocks until the whole plan finishes and returns the run_id — keep it: retries/appends (spawn_worker with run_id+step_id) and the closing finalize_run both need it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -428,7 +525,12 @@ const TOOLS = [
             "Which kind of orchestration this is. 'rex' (default) is development work — it gets its own git worktree and branch, use it for ANYTHING that writes code. 'fox' is read-only research — it just adds tabs to your current workspace, no branch to clean up afterwards. Read the matching playbook with orchestration_guide first.",
         },
         branch: { type: "string", description: "Branch for the worktree; omit and herdr names one automatically. Ignored when container is 'tab'." },
-        base_ref: { type: "string", description: "Git ref that diffs are taken against (default: main)" },
+        base_ref: { type: "string", description: "Git ref that diffs are taken against, and the ref finalize_run verifies the merge against (default: main)" },
+        repo: {
+          type: "string",
+          description:
+            "Project repository for this run. Defaults to the orchestration's repo (--repo flag or the server's cwd). It is resolved to the main checkout and verified before anything is created — a worktree is never created from a guessed cwd.",
+        },
       },
       required: ["steps"],
     },
@@ -446,7 +548,8 @@ const TOOLS = [
           type: "object",
           description: "Values for the preset's declared inputs (see list_presets)",
         },
-        base_ref: { type: "string", description: "Git ref that diffs are taken against (default: main)" },
+        base_ref: { type: "string", description: "Git ref that diffs are taken against, and the ref finalize_run verifies the merge against (default: main)" },
+        repo: { type: "string", description: "Project repository for this run (same resolution and verification as run_plan)" },
       },
       required: ["preset", "inputs"],
     },
@@ -713,6 +816,69 @@ const TOOLS = [
       };
     },
   },
+  {
+    name: "list_runs",
+    description:
+      "List this orchestration's runs — every run_plan / run_preset execution with its id, container, branch, status (running / completed / failed / accepted) and cleanup state. Use it to recover a run_id after losing track, and to see which runs are still waiting for finalize_run.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    handler: async () => ({
+      runs: registry.listRuns(ROOT).map((r) => ({
+        run_id: r.run_id,
+        label: r.label ?? null,
+        mode: r.mode ?? null,
+        container: r.container ?? null,
+        status: r.status,
+        workspace_id: r.workspace_id ?? null,
+        branch: r.branch ?? null,
+        base_ref: r.base_ref ?? null,
+        steps: Object.values(r.stages ?? {}).map((s) => ({ step: s.step, status: s.status })),
+        created_at: r.created_at ?? null,
+        completed_at: r.completed_at ?? null,
+        accepted_at: r.accepted_at ?? null,
+        cleanup: r.cleanup ? { mode: r.cleanup.mode, status: r.cleanup.status } : null,
+      })),
+    }),
+  },
+  {
+    name: "finalize_run",
+    description:
+      "Formally accept a run and clean up its scene. This is the ONLY deletion verb, and it is deliberate by construction: (1) you must pass verdict='accept' plus evidence { review, acceptance } written by YOU — worker output is never parsed for a PASS; (2) for a worktree run it verifies with git that the branch is really merged into its base (merge-base --is-ancestor) and that the checkout is clean — unmerged or dirty ALWAYS refuses and keeps the scene; (3) it only touches objects registered to this run — the fox host workspace is never touched, and if foreign panes/tabs have appeared in the run's workspace it refuses to delete it; (4) the result log is persisted BEFORE anything is stopped or removed, branches are deleted with safe `git branch -d` only, and every step is recorded so a partial failure can be retried by calling again with the same run_id. cleanup: 'auto' (the configured default) removes the run's worktree+branch / its tabs; 'keep' marks the run accepted but leaves the scene for the human. Failed or unreviewed runs are never cleaned — they simply stay.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run_id: { type: "string", description: "Run to accept (from run_plan / run_preset / list_runs)" },
+        verdict: { type: "string", description: "Must be 'accept'. There is no 'reject' — a failed run is just left in place." },
+        evidence: {
+          type: "object",
+          description: "Why acceptance is justified. Both fields are required and are persisted verbatim to the result log.",
+          properties: {
+            review: { type: "string", description: "The cross-vendor review outcome you collected (who reviewed, PASS/FAIL, key findings)" },
+            acceptance: { type: "string", description: "Your OWN acceptance check — what you verified against the requirements, not a forwarded review verdict" },
+          },
+        },
+        cleanup: {
+          type: "string",
+          description: "'auto' or 'keep'. Defaults to the configured cleanup_after_accept (itself defaulting to auto).",
+        },
+      },
+      required: ["run_id", "verdict", "evidence"],
+    },
+    handler: async (args) => {
+      mustFindRun(args.run_id);
+      if (args.cleanup != null && args.cleanup !== "auto" && args.cleanup !== "keep") {
+        throw Object.assign(new Error(`cleanup must be 'auto' or 'keep', got '${args.cleanup}'`), { code: "bad_cleanup_mode" });
+      }
+      const mode = args.cleanup ?? cleanupAfterAccept();
+      return finalizeRun({
+        root: ROOT,
+        runId: args.run_id,
+        verdict: args.verdict,
+        evidence: args.evidence,
+        cleanupMode: mode,
+        logRoot: join(registry.stateDir(), "runs"),
+      });
+    },
+  },
 ];
 
 // 预设引擎的两个「取产物」动作。刻意只有这两个，且都是机械操作：
@@ -828,28 +994,24 @@ function settledNow(slug) {
   return turns != null ? { status, seq, turns } : { status, seq };
 }
 
-// 一次编排 = 一个 worktree workspace，挂在父 repo 下；环节是 tab，环节内并行是 pane。
-// 这是用户手工建 worktree 时的布局，编排产物不该长得跟手工的不一样。
-//
-// 懒建 + 复用：同一个 root 的第二次 run_plan 会继续用同一个容器，
-// 不会每次都在侧栏多出一个 space。
+// 一个 run = 一个容器（GG 定，2026-09-16，推翻按 ROOT 懒复用所有 plan 的旧行为）。
+// 懒复用让两次 run 的对象混在同一个容器里，「这次编排拥有什么」说不清，
+// finalize 就没法安全地收。每个 run 独占容器，所有权边界才是结构性的。
 //
 // 容器有【两种】，边界按「要不要写代码」划：
-//   worktree —— 涉及开发的任务。新建 worktree workspace，独立分支，改动不碰主工作区。
-//   tab      —— 只读的研究/探索。不新建 space，就在编排者所在的 space 里加 tab。
-// 研究性任务开 worktree 是浪费（还要收尾删分支），写代码不开 worktree 则会互相踩。
-let SPACE = null;
-function ensureSpace(label, branch, container = "worktree") {
-  if (SPACE) return SPACE;
-
+//   worktree —— rex。每次 run_plan 都新建一个 worktree workspace，独立分支。
+//   tab      —— fox。不新建 space，只把【本 run 的 tab】加进编排者当前所在的
+//              workspace（每次现查，不缓存——编排者可能早就挪到别的 space 了；
+//              那个 workspace 本身永远不在清理范围内）。
+function createRunSpace({ container, label, branch, repo }) {
   if (container === "tab") {
-    // 就在编排者所在的 space 里干活。没有 pane 就没有「当前 space」——
-    // CLI 直连的会话不在任何 workspace 里，明确报错好过静默改成新建 space。
+    // 没有 pane 就没有「当前 space」——CLI 直连的会话不在任何 workspace 里，
+    // 明确报错好过静默改成新建 space。
     if (!IDENTITY.paneId) {
       throw Object.assign(
         new Error(
           "container 'tab' needs the orchestrator to be inside a herdr workspace, " +
-            "but this session has no pane. Use container 'worktree', or run the orchestrator inside herdr.",
+            "but this session has no pane. Use mode 'rex', or run the orchestrator inside herdr.",
         ),
         { code: "no_current_space" },
       );
@@ -862,48 +1024,20 @@ function ensureSpace(label, branch, container = "worktree") {
       });
     }
     const w = tryHerdr(["workspace", "get", wsId]);
-    SPACE = {
+    log(`fox run adds tabs to orchestrator's current ws=${wsId}`);
+    return {
       workspaceId: wsId,
       checkoutPath: null, // 就在仓库本体里，只读任务不需要隔离
       branch: null,
-      rootTabId: null, // 不复用别人的 tab，每个环节都新建
-      tabsUsed: 1,
+      rootTabId: null, // 不复用别人的 tab，本 run 的每个环节都新建
       container: "tab",
-      label: w.ok ? w.result.workspace?.label : null,
+      hostLabel: w.ok ? (w.result.workspace?.label ?? null) : null,
     };
-    registry.putOrchestration(ROOT, { workspace_id: wsId, container: "tab", label });
-    log(`space reused (tab mode) ws=${wsId}`);
-    return SPACE;
   }
 
-  const existing = registry.getOrchestration(ROOT);
-  if (existing?.workspace_id) {
-    // 上一轮建过。确认它还在——herdr 重启后 workspace id 会变，那就得重建。
-    const w = tryHerdr(["workspace", "get", existing.workspace_id]);
-    if (w.ok) {
-      SPACE = {
-        workspaceId: existing.workspace_id,
-        checkoutPath: existing.checkout_path,
-        branch: existing.branch,
-        rootTabId: existing.root_tab_id,
-        tabsUsed: existing.tabs_used ?? 0,
-        container: existing.container ?? "worktree",
-      };
-      return SPACE;
-    }
-  }
-  const made = createOrchestrationSpace({ repo: REPO, label, branch });
-  SPACE = { ...made, tabsUsed: 0, container: "worktree" };
-  registry.putOrchestration(ROOT, {
-    workspace_id: made.workspaceId,
-    checkout_path: made.checkoutPath,
-    branch: made.branch,
-    root_tab_id: made.rootTabId,
-    container: "worktree",
-    label,
-  });
+  const made = createOrchestrationSpace({ repo, label, branch });
   log(`space created ws=${made.workspaceId} branch=${made.branch} checkout=${made.checkoutPath}`);
-  return SPACE;
+  return { ...made, container: "worktree" };
 }
 
 // 编排引擎。【刻意保持哑】：只做五件事——渲染模板、派活、等完成、取产物、
@@ -924,7 +1058,7 @@ function waitFailureReason(state, worker) {
   return `worker ${who} is still_running after the wait ceiling — use read_worker mode=screen for ${state.worker_id} to see what it is doing before waiting again`;
 }
 
-async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode = "rex", container }) {
+async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode = "rex", container, repo: repoArg }) {
   assertCanSpawn();
   if (!Array.isArray(steps) || steps.length === 0) {
     throw Object.assign(new Error("plan needs a non-empty steps array"), { code: "empty_plan" });
@@ -933,32 +1067,58 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
   // container 由 mode 推导，调用方不用声明两遍；显式给 container 时以它为准（逃生口）。
   const modeSpec = getMode(mode);
   const useContainer = container || modeSpec.container;
+  // repo 现解现验：worktree 只能建在【人确认过的项目主 checkout】上，不能跟着
+  // 调用时的 cwd 乱跑。每次 run_plan 都重新解析——上一次解析结果可能来自另一个 cwd。
+  const repo = resolveRepo(repoArg || REPO, { requireGit: useContainer === "worktree" });
   const runLabel = label || steps[0]?.id || "orchestration";
   // 容器名带上模式：侧栏里一眼看出这是哪种编排。
   const spaceLabel = `${modeSpec.label || mode} · ${runLabel}`;
-  const space = ensureSpace(spaceLabel, branch, useContainer);
+  const space = createRunSpace({ container: useContainer, label: spaceLabel, branch, repo });
   const id = `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-  // 所有 worker 都在这个 worktree 的 checkout 里干活，共用一个分支。
-  const workCwd = space.checkoutPath || REPO;
-  const ctx = { runId: id, repo: REPO, baseRef, branch: space.branch, steps: {} };
+  // 所有 worker 都在这个容器的 checkout 里干活，共用一个分支。
+  const workCwd = space.checkoutPath || repo;
+  const ctx = { runId: id, repo, baseRef, branch: space.branch, steps: {} };
   const results = [];
+
+  // run 登记先于一切后续动作：它是所有权的台账——finalize 只清这里登记的东西。
+  registry.putRun(ROOT, id, {
+    mode,
+    container: space.container,
+    label: runLabel,
+    workspace_id: space.workspaceId,
+    checkout_path: space.checkoutPath,
+    branch: space.branch,
+    base_ref: baseRef,
+    repo,
+    status: "running",
+    created_at: new Date().toISOString(),
+  });
   log(`plan start run=${id} steps=${steps.length} ws=${space.workspaceId}`);
+
+  // 收尾统一走这里：不管跑到哪一步中断，run 的终态与已产出的 results 都落回
+  // 台账——之后 list_runs / finalize_run 看到的不是一片空白。
+  function finishRun(status, payload) {
+    const patch = { status, results };
+    if (status !== "running") patch.completed_at = new Date().toISOString();
+    registry.putRun(ROOT, id, patch);
+    log(`plan ${id} finished status=${status}`);
+    return { run: id, run_id: id, ...payload };
+  }
 
   // ---- tab 一次建齐 ----
   //
   // 以前是跑到哪一步建哪个 tab，于是人在侧栏只看得到「已经发生的部分」，
   // 看不出这次编排一共几步、后面还有什么。整个计划的形状在第一秒就该是可见的。
   //
-  // 序号跨 run_plan 连续（从 space.tabsUsed 起算）：同一个容器里第二次 run_plan
-  // 要是又从 1 开始，侧栏就会出现两个「1 xxx」，谁也分不清哪个是哪次。
+  // 一个 run 一个容器，序号自然从 1 起（「跨 run_plan 连续编号」是懒复用时代
+  // 的需求，那时多个 run 共享一个容器；现在没有共享，也就没有重号）。
   const stages = [];
-  const startNo = space.tabsUsed;
   try {
     for (const [index, step] of steps.entries()) {
       const stepId = step.id ?? String(index);
       // worktree 模式下 workspace 名已经带了「模式 · 任务」，tab 不必重复；
       // tab 模式的 tab 跟人自己的 tab 混在一个 space 里，必须带全名才分得清。
-      const no = startNo + index + 1;
+      const no = index + 1;
       const baseLabel =
         space.container === "tab"
           ? `${spaceLabel} · ${no} ${step.title || stepId}`
@@ -967,33 +1127,42 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         workspaceId: space.workspaceId,
         // 第一个环节复用容器自带的那个 tab，否则会白白多出一个空 tab。
         label: `${baseLabel} ☐`,
-        reuseTabId: space.tabsUsed === 0 ? space.rootTabId : null,
+        reuseTabId: index === 0 ? space.rootTabId : null,
       });
-      space.tabsUsed += 1;
       stages.push({ ...opened, baseLabel, stepId });
     }
   } catch (e) {
     results.push({ step: "(tabs)", ok: false, error: e.code || "tab_failed", message: e.message });
-    return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: "(tabs)", results };
+    return finishRun("failed", { workspace_id: space.workspaceId, completed: false, stopped_at: "(tabs)", results });
   }
 
-  // 标签存进 registry：状态要能【回退】（review 打回 impl 时 impl 那个 tab 从 ✓
-  // 退回 ⋯），而回退发生在这次 run_plan 返回【之后】，局部变量那时已经没了。
-  registry.putOrchestration(ROOT, {
-    tabs_used: space.tabsUsed,
-    stages: {
-      ...(registry.getOrchestration(ROOT)?.stages ?? {}),
-      ...Object.fromEntries(
-        stages.map((s) => [s.tabId, { label: s.baseLabel, step: s.stepId, status: "pending" }]),
-      ),
-    },
+  // 标签与 root pane 存进 run 记录：状态要能【回退】（review 打回 impl 时 impl 那个
+  // tab 从 ✓ 退回 ⋯），回退发生在这个 run_plan 返回【之后】，局部变量那时已经没了；
+  // root_pane_id 是 spawn_worker 追加 worker 时 split 的落点。
+  registry.putRun(ROOT, id, {
+    stages: Object.fromEntries(
+      stages.map((s) => [
+        s.tabId,
+        { label: s.baseLabel, step: s.stepId, status: "pending", root_pane_id: s.rootPaneId },
+      ]),
+    ),
   });
 
   // 读-改-写在一把锁里，理由同 markStageRunning。
   function recordStage(tabId, status) {
     registry.update((reg) => {
-      const stage = reg.orchestrations[ROOT]?.stages?.[tabId];
+      const stage = reg.orchestrations[ROOT]?.runs?.[id]?.stages?.[tabId];
       if (stage) stage.status = status;
+    });
+  }
+
+  // split 成功但 agent 没起来的 pane 是 run 名下的空壳：登记成 stray，
+  // finalize 的归属扫描认得它，不会被当成「外来 pane」而拒删整个容器。
+  function noteStrayPane(paneId, tabId) {
+    registry.update((reg) => {
+      const run = reg.orchestrations[ROOT]?.runs?.[id];
+      if (!run) return;
+      run.stray_panes = [...(run.stray_panes ?? []), { pane_id: paneId, tab_id: tabId }];
     });
   }
 
@@ -1027,7 +1196,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         attached = resolveArtifact(step.attach, ctx);
       } catch (e) {
         results.push({ step: stepId, ok: false, error: e.code || "attach_failed", message: e.message });
-        return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
+        return finishRun("failed", { workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results });
       }
     }
 
@@ -1050,7 +1219,7 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         setStageStatus(stage.tabId, stageLabel, "failed");
         recordStage(stage.tabId, "failed");
         results.push({ step: stepId, ok: false, error: e.code || "split_failed", message: e.message });
-        return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
+        return finishRun("failed", { workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results });
       }
 
       try {
@@ -1062,10 +1231,12 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
           role: "worker",
           root: ROOT,
           parent: ROOT,
+          runId: id,
+          stepId,
           title,
           purpose: stepId,
           branch: space.branch,
-          repo: REPO,
+          repo,
           workspaceId: space.workspaceId,
           tabId: stage.tabId,
           yolo: !!spec.yolo,
@@ -1076,12 +1247,13 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         });
         spawned.push({ slug: entry.slug, title, profile: profileName });
       } catch (e) {
+        if (i > 0) noteStrayPane(paneId, stage.tabId); // split 出来的空壳，登记在 run 名下
         const failure = explainHerdrFailure(e, "start a worker");
         setStageStatus(stage.tabId, stageLabel, "failed");
         recordStage(stage.tabId, "failed");
         results.push({ step: stepId, ok: false, error: failure.code || "spawn_failed", message: failure.message });
         log(`plan ${id} step ${stepId} spawn failed: ${failure.message}`);
-        return { run: id, workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results };
+        return finishRun("failed", { workspace_id: space.workspaceId, completed: false, stopped_at: stepId, results });
       }
     }
 
@@ -1108,14 +1280,13 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
         workers,
       });
       log(`plan ${id} stopped: step ${stepId} ${workers.map((w) => `${w.worker_id}:${w.status}`).join(",")}`);
-      return {
-        run: id,
+      return finishRun("failed", {
         workspace_id: space.workspaceId,
         completed: false,
         stopped_at: stepId,
         reason: workers.map((w) => w.reason).join(" | "),
         results,
-      };
+      });
     }
 
     // done / idle 只代表 agent 到了终态，不代表产物已能读到。没有可读回复时
@@ -1149,14 +1320,13 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
       recordStage(stage.tabId, "failed");
       results.push({ step: stepId, ok: false, status: "failed", tab: stage.tabId, workers: missingOutput });
       log(`plan ${id} stopped: step ${stepId} missing output ${missingOutput.map((w) => w.worker_id).join(",")}`);
-      return {
-        run: id,
+      return finishRun("failed", {
         workspace_id: space.workspaceId,
         completed: false,
         stopped_at: stepId,
         reason: missingOutput.map((w) => w.reason).join(" | "),
         results,
-      };
+      });
     }
 
     setStageStatus(stage.tabId, stageLabel, "done");
@@ -1176,14 +1346,20 @@ async function runPlan({ steps, base_ref: baseRef = "main", label, branch, mode 
     log(`plan ${id} step ${stepId} done workers=${spawned.length}`);
   }
 
-  return {
-    run: id,
+  const nextHint =
+    space.container === "worktree"
+      ? "after the cross-vendor review PASSes and you have accepted the result yourself, merge the branch " +
+        `and call finalize_run with run_id='${id}' (default cleanup: auto; pass cleanup:'keep' to keep the scene)`
+      : "after you have delivered the findings and they are accepted, " +
+        `call finalize_run with run_id='${id}' (default cleanup: auto; pass cleanup:'keep' to keep the tabs)`;
+  return finishRun("completed", {
     workspace_id: space.workspaceId,
     branch: space.branch,
     checkout: space.checkoutPath,
     completed: true,
     results,
-  };
+    next: nextHint,
+  });
 }
 
 // 等一整批 worker 全部落定。waitForWorkers 是「任一完成就返回」，
@@ -1209,7 +1385,7 @@ async function waitAllWorkers(ids) {
 }
 
 // 预设 = 存好的计划模板。渲染完就交给同一个引擎，没有第二套执行路径。
-async function runPreset({ preset: name, inputs = {}, base_ref: baseRef = "main" }) {
+async function runPreset({ preset: name, inputs = {}, base_ref: baseRef = "main", repo }) {
   const preset = getPreset(name);
   const missing = missingInputs(preset, inputs);
   if (missing.length) {
@@ -1232,6 +1408,7 @@ async function runPreset({ preset: name, inputs = {}, base_ref: baseRef = "main"
     label: inputs.label || name,
     branch: inputs.branch || null,
     mode: preset.mode || "rex",
+    repo,
   });
   return { preset: name, ...out };
 }
@@ -1343,6 +1520,8 @@ const WORKER_HIDDEN = new Set([
   "wait_for_worker",
   "run_plan",
   "run_preset",
+  // finalize 是破坏性动词，只能由编排者触发——worker 绝不能验收并清掉自己所在的 run。
+  "finalize_run",
 ]);
 const EXPOSED = IDENTITY.role === "worker" ? TOOLS.filter((t) => !WORKER_HIDDEN.has(t.name)) : TOOLS;
 

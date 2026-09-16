@@ -1,5 +1,7 @@
 # v0.1 实施计划 — 跨 harness 编排
 
+> **历史文档（v0.1，2026-07）**：文中 `orchestrate` action、`terminate` 回收容器、`git branch -D` 等设计已被后续版本推翻——
+> 现行行为以 [`README.md`](../README.md) 与 [`AGENTS.md`](../AGENTS.md) 为准（一 run 一容器、`finalize_run` 显式验收、分支只用 `-d`）。
 > 需求与设计结论见 [`README.md`](../README.md)；实测依据见 [`findings-2026-07-31.md`](findings-2026-07-31.md)。
 > 六步，每步一个提交，每步都有**能跑起来的验收**——不以「文件写完了」算完成。
 

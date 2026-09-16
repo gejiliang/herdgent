@@ -10,7 +10,7 @@
 
 - **只管自己起的会话。** 只操作本插件建出来的 workspace；**绝不按 label / agent 名去全局搜索**。GG 手起的会话（SPQR、mxweb、worldquant……）永远不在射程内。边界是结构性的，不是「记得过滤」。编排会一次起一批 worker，这条只会更吃紧。
 - **不改被管理项目的源码与配置。** herdgent 自己的东西全在 `~/.herdgent`（代码 / config / state，见 `lib/paths.mjs`）；给会话的上下文只经启动 argv（`--settings` / `--mcp-config`）注入，两者实测均为**合并**语义，不会覆盖用户自己的配置。
-  worktree 也不算例外——实测 checkout 落在 `~/.herdr/worktrees/<repo>/<branch>`，项目仓库只多 `.git/worktrees/` 元数据。但**只能经 `herdr worktree create` / `remove` 进出**，且 `remove` 不删分支，收尾要补 `git branch -D`，否则每次编排都在用户仓库里留一个分支。
+  worktree 也不算例外——实测 checkout 落在 `~/.herdr/worktrees/<repo>/<branch>`，项目仓库只多 `.git/worktrees/` 元数据。但**只能经 `herdr worktree create` / `remove` 进出**，且 `remove` 不删分支，收尾要补 `git branch -d`（**只用安全的 -d，永远不用 -D**——未合并的分支让 git 自己拒），否则每次编排都在用户仓库里留一个分支。
 - **主键只用 harness 侧 session id**（claude 的 UUID）。herdr 的 `workspace_id` / `pane_id` / `terminal_id` 都会失效或变化，只能当本次寻址的临时句柄。
 - **破坏性实验用命名会话**（配方见下）。日常 dogfood 就在 `default` 里跑——插件本来就是用户全局的，而且让归属边界从第一天就 load-bearing 正是目的。只有「可能起一堆东西 / 可能删错东西」的实验才需要隔离。
 
@@ -118,8 +118,7 @@ herdgent 的产品形态就是跨 harness 编排（见 README），所以「不�
 
 同目录下还有 `profiles.json`（worker profile）与 `workflows/*.md`（自定义编排 playbook）。**`install` 不覆盖这个目录里的任何东西。**
 
-`cleanup_after_accept`：`keep`（默认）/ `auto`，决定编排验收通过并合并之后，收不收那个 worktree 容器。**消费者是编排者（prompt），不是代码**——herdgent 不自动收任何东西，MCP 通道里没有删除动词（issue #2 已拍板），收尾照旧由发起编排的会话手工跑 `herdr worktree remove` + `git branch -d`。值经 `orchestration_guide` 的返回送达。
-默认取 `keep` 的理由是代价不对称：留着只是侧栏多一个已完成的 workspace，随时能看能收；收早了不可逆，而且人回来时现场就没了。缺文件 / 坏 JSON / 缺键 / 值非法一律回 `keep`。
+`cleanup_after_accept`：`auto`（默认）/ `keep`，决定 `finalize_run` 验收通过之后收不收那个 run 的容器。**消费者是 `finalize_run`（代码），有完整的安全契约**：显式 `verdict: "accept"` + 外部传入的 evidence（不解析 worker 输出里的 PASS）、rex 用 `git merge-base --is-ancestor` 核验并入指定 base、脏 / 未合并一律拒绝、只清 run 台账登记的对象、发现外来 pane/tab 拒删、分支只用 `git branch -d`、先落盘结果日志再动手、幂等可重试。**GG 2026-09-16 明确批准推翻旧的 keep 默认与「MCP 通道无删除动词」（issue #2）决定**——删除不再是禁忌，但只存在 `finalize_run` 这一条带核验的路径。`keep` 是显式例外：标 accepted、留现场给人看。缺文件 / 坏 JSON / 缺键 / 值非法一律回 `auto`。值经 `orchestration_guide` 的返回送达。失败 / 未验收的 run 永不自动清。
 
 ## 代码约定
 

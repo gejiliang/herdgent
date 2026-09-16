@@ -49,15 +49,17 @@ omnigent 是参照物（Apache-2.0，Databricks + Neon）。只借设计，不�
 
 ## 编排的物理布局
 
-herdr 的模型跟编排结构天然对齐——worktree 就是带 git provenance 的 workspace，且自动与父 repo workspace 分组：
+herdr 的模型跟编排结构天然对齐——worktree 就是带 git provenance 的 workspace，且自动与父 repo workspace 分组。**一个 run 一个容器**：每次 `run_plan` / `run_preset` 开一个新的 worktree workspace，环节是里面的 tab，环节内并行的 worker 是 tab 里的 pane：
 
 ```
 Space 侧栏
-└─ myrepo                    orchestrator 待在这里（不写代码，不需要 worktree）
-   ├─ auth-refactor          worker：worktree workspace + claude
-   ├─ fix-sse-error          worker：worktree workspace + pi
-   └─ review-auth-refactor   worker：评审，pi
+└─ myrepo                       orchestrator 待在这里（不写代码，不需要 worktree）
+   └─ rex · auth-refactor       一个 run = 一个 worktree workspace + 独立分支
+      ├─ 1 impl ✓               tab：实现（两个并行 writer 是里面的两个 pane）
+      └─ 2 review ⋯             tab：评审（几家厂商各一个 pane）
 ```
+
+run 之间绝不共享容器——「这个 run 拥有什么」是结构性的，`finalize_run` 收尾才收得安全。
 
 状态 rollup 是 herdr 自带的：一个 worker `blocked`，它的 pane、tab、workspace 全部显示 blocked。**跨会话总览因此不用建**——Space 侧栏看整体，Agent 侧栏看每个 worker，会话内部看 statusline。
 
@@ -136,11 +138,20 @@ herdgent 只需要能连上 herdr socket，而 **worker 永远跑在 herdr 的�
 | **rex** | 自己的 git worktree workspace + 独立分支 | **任何会写代码的活**。侧栏显示 `rex · <任务名>` |
 | **fox** | 不新建 space，在当前 workspace 加 tab | **只读研究**。tab 显示 `fox · <题目> · <环节>` |
 
-一次编排就是一个容器：**环节是 tab，环节内并行的 worker 是 pane**。
+一个 run 就是一个容器：**环节是 tab，环节内并行的 worker 是 pane**。
 tab 名带状态后缀（`☐` 还没开始 / `⋯` 跑着 / `✓` 完成 / `⚠` 有人卡住 / `✗` 失败），
 扫一眼侧栏就知道进度。**整个计划的 tab 一开跑就建齐**，所以第一秒就看得出一共几步、
-后面还有什么；序号跨多次 `run_plan` 连续，同一个容器里不会出现两个「1 xxx」。
-状态是**可回退的**：`send_to_worker` 派了返工，那个环节的 `✓` 会自动退回 `⋯`。
+后面还有什么。状态是**可回退的**：`send_to_worker` 派了返工，那个环节的 `✓` 会自动退回 `⋯`。
+
+**追加 / 重试**用 `spawn_worker` 带 `run_id` + `step_id`：新 worker 落回那个环节的 tab，
+不开新容器。不带 `run_id` 的裸 spawn 会被拒——每个 worker 都必须挂在某个 run 名下。
+
+**收尾**用 `finalize_run`：显式 `verdict: "accept"` + 外部传入的 evidence（不解析
+worker 输出找 PASS），rex 用 `git merge-base --is-ancestor` 核验已并入 base、
+脏 / 未合并一律拒绝；只清这个 run 登记过的对象（fox 的宿主 workspace 永不动），
+外来 pane/tab 混入时拒删；分支只用 `git branch -d`；先落盘结果日志再动手，幂等可重试。
+默认 `cleanup_after_accept: "auto"`（验收后自动收），`keep` 是显式例外——照样标
+accepted，现场留给人。失败 / 未验收的 run 永不自动清。
 
 两种模式各有一份 playbook（`skills/rex/`、`skills/fox/`），编排者用
 `orchestration_guide(mode: "rex")` 读。用户可在 `config/modes.json` 覆盖或新增自己的模式。
@@ -189,7 +200,7 @@ run_preset(preset, inputs)          跑
 
 这是 herdgent 存在的理由：单家编排 Claude Code 自己的 dynamic workflow 就够了。
 
-**#6（commit `1e35a0d`）带来三处编排者可见的行为变化**——动词表没变（仍是十四个），变的是行为契约：
+**#6（commit `1e35a0d`）带来三处编排者可见的行为变化**——当时动词表没变，变的是行为契约（2026-09-16 起动词表加了 `finalize_run` / `list_runs`，见下）：
 
 - `run_plan` 不再把「没等到」标成完成：`still_running` / `unreachable` 现在与 `blocked` 一样中断计划，各自给不同的 reason（此前是等满 30 分钟兜底上限后把这一步标 ✓ 继续跑）
 - 拿不到可读产出的步骤直接失败，不再往下游喂空文本
@@ -202,6 +213,7 @@ run_preset(preset, inputs)          跑
 | `bin/reconcile.mjs` | `[[startup]]` 对账 |
 | `bin/hook-claude.mjs` | Claude Code SessionStart 钩子 |
 | `lib/worker.mjs` | worker 生命周期：起、命名、隔离、回收 |
+| `lib/finalize.mjs` | `finalize_run` 的执行体：显式验收、git 核验、归属扫描、幂等清理 |
 | `lib/events.mjs` | herdr 事件订阅（长连接推送） |
 | `lib/mcp.mjs` | 零依赖 stdio JSON-RPC |
 | `lib/harness/` | claude / codex / pi 三家的适配：启动参数、提交语义、transcript 定位与解析 |
@@ -212,11 +224,13 @@ run_preset(preset, inputs)          跑
 | `lib/modes.mjs` | 编排模式：rex（开发／worktree）与 fox（研究／tab） |
 | `skills/rex/`、`skills/fox/` | 两种编排各自的 playbook——**全部语义在这里**，prompt 不是代码 |
 
-### 十四个动词
+### 十六个动词
 
-`spawn_worker` · `wait_for_worker` · `read_worker` · `send_to_worker` · `cancel_worker` · `list_workers`
+`run_plan` · `run_preset` · `list_presets` —— 开新 run（一 run 一容器）
+`spawn_worker`（带 `run_id`+`step_id` 追加 / 重试）· `wait_for_worker` · `read_worker` ·
+`send_to_worker` · `cancel_worker` · `list_workers` · `list_runs`
+`finalize_run` —— 唯一的删除动词：显式验收 + git 核验 + 归属扫描后才清 run 的容器
 `set_worker_limit` · `list_profiles` · `orchestration_guide` · `herdr_status` · `ping`
-`list_presets` · `run_preset` · `run_plan`
 
 派活只能用 **profile**（`impl-kimi` / `impl-sonnet` / `impl-glm` / `review-opus` / `review-kimi` /
 `review-deepseek` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。

@@ -11,13 +11,18 @@ description: 研究编排：并行派只读 worker 调查，汇总成结论。�
 
 > 如果你是被派出来的 **worker**，你看不到 `spawn_worker` —— 把发现交回去就是终点。
 
-## 容器：不开 worktree，就在当前 space 加 tab
+## 容器：不开 worktree，只在发起者的 space 加本 run 的 tab
 
-研究是只读的，开 worktree 纯属浪费——还要收尾删分支。fox 直接在**你所在的 space**
-新建 tab，tab 名带编排名（`fox · <题目> · <环节>`），因为它跟人自己的 tab 混在一起。
+研究是只读的，开 worktree 纯属浪费——还要收尾删分支。fox 每次 `run_plan` 都在
+**你当前所在的 space** 新建本 run 的 tab（每次现查你在哪个 space，不缓存），
+tab 名带编排名（`fox · <题目> · <环节>`），因为它跟人自己的 tab 混在一起。
+**宿主 workspace 本身永远不在清理范围内**——收尾只收这个 run 自己登记的 tab。
 
 代价：**没有独立分支**，所以 `diff_of:<step>` 用不了。要看改动就直接给 git ref，
 比如 `diff_of:main..feature`。
+
+run_id 同样是句柄：要追加一个方向用 `spawn_worker({ run_id, step_id, ... })`
+（落回那个环节的 tab，不开新容器）；裸 spawn（不带 run_id）会被拒。
 
 ## 怎么排
 
@@ -42,8 +47,8 @@ run_plan({ label:"调研缓存方案", container:"tab", steps: [
   （原来还有个 `review-gpt`，ChatGPT 订阅到期后已删，2026-08-12）
   （`review-opus` 跑不了命令，只能读文件——扇出调研里它看不了 `git log` 这类东西）
 
-profile 打包了 harness、模型、思考等级和权限，**只能整包选**，
-`spawn_worker` 里另传 `harness` / `model` 会被忽略。
+profile 打包了 harness、模型、思考等级和权限，**只能整包选**——
+工具的参数表里根本没有 `harness` / `model` 这两项。
 
 **扇出宽就用便宜的**。十个方向全派评审档的模型是浪费，先用 `explore-deepseek` 铺开，
 发现值得深挖的再单独派好模型。`review-opus` 尤其省着用——那是 Claude 订阅额度。
@@ -58,24 +63,24 @@ worker 交回来的是各自的发现。你的活是**综合**：
 
 引用要带文件路径和行号——那是人接着往下查的入口。
 
-## 收尾
+## 收尾：`finalize_run` 显式验收
 
-fox 的容器是 **tab**，没有 worktree 也没有分支要删，收尾比 rex 轻得多。
-收不收看配置 `cleanup_after_accept`——`orchestration_guide` 的返回里会告诉你当前生效值：
+结论交付、人也认可之后，调 `finalize_run({ run_id, verdict: "accept", evidence })`：
+`evidence.review` 写各家结论的综合（谁一致、谁有分歧），`evidence.acceptance` 写
+**你自己**对结论的核对——证据从外部传入并落盘，工具绝不解析 worker 输出去找「结论」
+两个字。
 
-- **`keep`（默认）**：**结论交付后 tab 留着。** 人回到侧栏时要能点进去看
-  worker 查过什么、界面什么样——留着只是多一个已完成的 tab；关掉就看不到了。
-  报告里写清这次编排的 tab 名，加一句「你可以去侧栏看，看完告诉我我来收，或者自己收」。
-- **`auto`**：结论交付后把这次编排的 tab 收掉。
+收不收看配置 `cleanup_after_accept`（`orchestration_guide` 的返回会告诉你当前生效值）：
 
-**MCP 工具里没有任何能删东西的动词，这是刻意的**（`cancel_worker` 连
-`terminate` 都不删）。要收 tab 用 herdr 的命令自己做——它保证「删」永远是一个
-明确的决定，而不是某个工具的副作用。
+- **`auto`（默认）**：把**这个 run 的 tab** 逐个关掉。只关台账里登记、且 pane
+  全部属于本 run 的 tab——某个 tab 里后来混进了别的 pane 就拒关那个 tab
+  （其余照收），报告出来由人处置。**宿主 workspace 与人的 tab 绝不动**。
+- **`keep`**：`finalize_run({ ..., cleanup: "keep" })`——**照样标 accepted**
+  （完成状态与保留现场是两回事），tab 全留着；人看完你再调一次 `cleanup: "auto"` 就收。
 
-默认 `keep` 会堆 tab。**每次新编排开始前先报一句**「上次还有 N 个已完成的编排 tab 没关」，
-让人顺手决定——否则「不自动收」会退化成「永远不收」，侧栏迟早没法看。
-查法：`list_workers` 能看到历史 worker 所在的 tab，跟你记忆里的编排名对得上、
-且不在本次编排里的，就是可以收的那些。
+fox 没有分支要核验（没有 worktree），所以不查 merge；但「先落盘结果日志再动手、
+幂等可重试、只动本 run 登记的对象」三条与 rex 完全一样。
+没交付结论的 run 不要 finalize——未验收的 run 永远不会被自动清，留着就是现场。
 
 ## worker 回报 `blocked` 时
 

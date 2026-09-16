@@ -104,20 +104,21 @@ try {
   const { cleanupAfterAccept } = await import(`../lib/config.mjs?t=${Date.now()}`);
   const configFile = join(config, "config.json");
 
-  check("配置文件不存在 → keep", cleanupAfterAccept() === "keep", cleanupAfterAccept());
+  // 默认是 auto（GG 定，2026-09-16 推翻旧的 keep 默认）；keep 是显式的例外。
+  check("配置文件不存在 → auto", cleanupAfterAccept() === "auto", cleanupAfterAccept());
 
   mkdirSync(config, { recursive: true });
   writeFileSync(configFile, "{not json");
-  check("坏 JSON → keep", cleanupAfterAccept() === "keep", cleanupAfterAccept());
+  check("坏 JSON → auto", cleanupAfterAccept() === "auto", cleanupAfterAccept());
 
   writeFileSync(configFile, JSON.stringify({ unrelated: true }));
-  check("缺少 cleanup_after_accept → keep", cleanupAfterAccept() === "keep", cleanupAfterAccept());
+  check("缺少 cleanup_after_accept → auto", cleanupAfterAccept() === "auto", cleanupAfterAccept());
 
   writeFileSync(configFile, JSON.stringify({ cleanup_after_accept: "later" }));
-  check("非法 cleanup_after_accept → keep", cleanupAfterAccept() === "keep", cleanupAfterAccept());
+  check("非法 cleanup_after_accept → auto", cleanupAfterAccept() === "auto", cleanupAfterAccept());
 
-  writeFileSync(configFile, JSON.stringify({ cleanup_after_accept: "auto" }));
-  check("auto 被正确读取", cleanupAfterAccept() === "auto", cleanupAfterAccept());
+  writeFileSync(configFile, JSON.stringify({ cleanup_after_accept: "keep" }));
+  check("keep 被正确读取", cleanupAfterAccept() === "keep", cleanupAfterAccept());
 
   const initial = await probe(6, [{ key: "workers", name: "list_workers" }]);
   check("未显式设置时采用第一次启动值", initial.workers.limit === 6, `limit=${initial.workers.limit}`);
@@ -148,8 +149,8 @@ try {
     { key: "withoutMode", name: "orchestration_guide" },
     { key: "withMode", name: "orchestration_guide", arguments: { mode: "rex" } },
   ]);
-  check("无参数 guide 带收尾策略", guide.withoutMode.cleanup_after_accept === "auto", guide.withoutMode.cleanup_after_accept);
-  check("mode guide 带收尾策略", guide.withMode.cleanup_after_accept === "auto", guide.withMode.cleanup_after_accept);
+  check("无参数 guide 带收尾策略", guide.withoutMode.cleanup_after_accept === "keep", guide.withoutMode.cleanup_after_accept);
+  check("mode guide 带收尾策略", guide.withMode.cleanup_after_accept === "keep", guide.withMode.cleanup_after_accept);
 } finally {
   rmSync(home, { recursive: true, force: true });
 }

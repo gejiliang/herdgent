@@ -29,13 +29,14 @@ process.env.HERDR_SOCKET_PATH = join(home, "no-such-herdr.sock");
 
 const registry = await import(`../lib/registry.mjs?t=${Date.now()}`);
 
-// ---- 序号跨 run_plan 连续 ----
+// ---- 序号：一个 run 一个容器，从 1 起 ----
 //
-// 这是 run_plan 里算标签的规则，抄在这里当规格：容器已经用掉 tabsUsed 个 tab 时，
-// 新一批从 tabsUsed+1 起编号，而不是从 1。
-function stageLabels({ steps, tabsUsed, container, spaceLabel }) {
+// 2026-09-16 起每个 run 独占容器（不再按 ROOT 懒复用），所以编号没有「跨 run 连续」
+// 的需求——共享容器才需要防重号，独占容器里每个 run 都从 1 起天经地义。
+// 这是 run_plan 里算标签的规则，抄在这里当规格。
+function stageLabels({ steps, container, spaceLabel }) {
   return steps.map((step, index) => {
-    const no = tabsUsed + index + 1;
+    const no = index + 1;
     return container === "tab"
       ? `${spaceLabel} · ${no} ${step.title || step.id}`
       : `${no} ${step.title || step.id}`;
@@ -44,20 +45,16 @@ function stageLabels({ steps, tabsUsed, container, spaceLabel }) {
 
 {
   const steps = [{ id: "impl", title: "impl" }, { id: "review", title: "review" }];
-  const first = stageLabels({ steps, tabsUsed: 0, container: "worktree" });
-  check("首轮从 1 开始", JSON.stringify(first) === '["1 impl","2 review"]', first.join(" | "));
+  const first = stageLabels({ steps, container: "worktree" });
+  check("每个 run 从 1 开始", JSON.stringify(first) === '["1 impl","2 review"]', first.join(" | "));
 
-  // 同一个容器里再跑一次：接着编号，不是又从 1 开始
-  const second = stageLabels({ steps: [{ id: "fix", title: "fix" }], tabsUsed: 2, container: "worktree" });
-  check("第二轮接着编号", second[0] === "3 fix", second[0]);
-
-  const all = [...first, ...second];
-  check("整个容器里序号不重复", new Set(all.map((l) => l.split(" ")[0])).size === all.length, all.join(" | "));
+  // 第二个 run 在自己的容器里也从 1 起——不撞车是因为容器不共享，不是靠编号错开
+  const second = stageLabels({ steps: [{ id: "fix", title: "fix" }], container: "worktree" });
+  check("第二个 run 同样从 1 开始", second[0] === "1 fix", second[0]);
 
   // tab 模式的 tab 跟人自己的 tab 混在一个 space 里，必须带编排名
   const inTab = stageLabels({
     steps: [{ id: "survey", title: "survey" }],
-    tabsUsed: 0,
     container: "tab",
     spaceLabel: "fox · 调研缓存",
   });
@@ -109,6 +106,35 @@ function stageLabels({ steps, tabsUsed, container, spaceLabel }) {
   check("未知 tab 返回 null", markStageRunning(root, "no-such-tab") === null);
   check("未知 tab 不写脏数据", !registry.getOrchestration(root).stages["no-such-tab"]);
   check("tabId 为空时不炸", markStageRunning(root, null) === null);
+}
+
+// ---- 环节标签挂在 run 名下（现行布局）----
+//
+// 2026-09-16 起 stages 归 run 所有（ownership 的一部分），不再平铺在 orchestration 上。
+// markStageRunning 两处都要能找到：新数据在 run 里，旧数据在 orchestration 平级。
+{
+  const root = "test-root-runs";
+  registry.putRun(root, "run-a", {
+    status: "running",
+    stages: {
+      t9: { label: "1 impl", step: "impl", status: "done", root_pane_id: "p9" },
+    },
+  });
+  const { markStageRunning } = await import(`../lib/worker.mjs?t=${Date.now()}-3`);
+  const label = markStageRunning(root, "t9");
+  const run = registry.getRun(root, "run-a");
+  check("run 里的环节能退回 running", run.stages.t9.status === "running", run.stages.t9.status);
+  check("退回时拿得到 run 里的原标签", label === "1 impl", String(label));
+
+  // 另一个 run 的同名 tab 互不干扰——跨 run 分离是 ownership 的底线
+  registry.putRun(root, "run-b", {
+    status: "running",
+    stages: { t8: { label: "1 impl", step: "impl", status: "done", root_pane_id: "p8" } },
+  });
+  markStageRunning(root, "t8");
+  check("别的 run 的环节各自回退", registry.getRun(root, "run-b").stages.t8.status === "running");
+  check("run-a 不受 run-b 影响", registry.getRun(root, "run-a").stages.t9.status === "running");
+  check("findStageByTab 认得两边", !!registry.findStageByTab(root, "t9")?.run && !!registry.findStageByTab(root, "t8")?.run);
 }
 
 rmSync(home, { recursive: true, force: true });

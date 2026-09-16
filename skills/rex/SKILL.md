@@ -13,14 +13,31 @@ description: 开发编排：派 worker 在独立 git worktree 里实现，再交
 > 你多半是**在一个已经聊过需求的会话里**开始编排的，不需要另起炉灶。
 > 如果你是被派出来的 **worker**，你看不到 `spawn_worker` —— worker 不再往下派活。
 
-## 容器：一次编排 = 一个 worktree
+## 容器：一个 run = 一个 worktree
 
-rex 的每次编排都开一个 **git worktree workspace**，有自己的分支，改动不碰主工作区。
-人在侧栏看到的是 `rex · <任务名>`，里面每个环节一个 tab，环节内并行的 worker 是 pane。
+每次 `run_plan` / `run_preset` 都开一个**新的 git worktree workspace**，有自己的分支，
+改动不碰主工作区。人在侧栏看到的是 `rex · <任务名>`，里面每个环节一个 tab，
+环节内并行的 worker 是 pane。**run 之间绝不共享容器**——这个 run 拥有什么一目了然，
+收尾（`finalize_run`）才收得安全。
+
+**run_id 是这个 run 的句柄**，`run_plan` 返回它，`list_runs` 能找回它。三件事都要用它：
+追加/重试 worker（`spawn_worker` 带 `run_id` + `step_id`）、收尾（`finalize_run`）、
+以及事后查账。
 
 **所有 worker 共用这一个 checkout 和分支。** 所以一个环节里派多个写手时，
 必须给它们**互不重叠的活**（不同文件、不同模块），否则会互相踩。
 拿不准就串成两个环节。
+
+## 追加与重试：落回原 tab，绝不开新容器
+
+review 打回、worker 跑废、或者同一步要加一份力——都用
+`spawn_worker({ run_id, step_id, ... })`：新 worker 作为**那个环节 tab 里的一个新 pane**
+落地，同一个 checkout、同一个分支，环节状态自动退回「进行中」。
+
+**没有「裸 spawn」**：不带 `run_id` / `step_id` 的 `spawn_worker` 会被拒。
+新活走 `run_plan` / `run_preset`，追加走 `run_id` + `step_id`——每一条 worker
+都必须挂在某个 run 的名下，否则它就在任何收尾路径之外。worker 没跑歪只是答得不好时，
+优先 `send_to_worker` 纠正（同一个 pane 接着干），不必新派。
 
 ## 先看有没有现成的预设
 
@@ -77,7 +94,7 @@ run_plan({ label: "重构认证", steps: [
 ## profile 是唯一入口
 
 `list_profiles`。一个 profile 打包了 harness、模型、思考等级、提示词和权限，
-**只能整包选，不能按次覆盖**——`spawn_worker` 里传 `harness` / `model` 会被忽略。
+**只能整包选，不能按次覆盖**——工具的参数表里根本没有 `harness` / `model` 这两项。
 
 实现（S 级，思考等级拉满）：
 - `impl-kimi` —— Kimi Code K3 256K ← **主力**
@@ -110,43 +127,58 @@ run_plan({ label: "重构认证", steps: [
 没有合适的 profile 就**跟人说**，别试图拼一个出来。要长期加一个角色，
 写进 `~/.herdgent/config/profiles.json`——那是留痕的，临时覆盖不是。
 
-## 收尾
+## 收尾：`finalize_run` 显式验收
 
 收尾是**你的职责**，但有两道前提，缺一不可：
 
 1. **跨厂商评审 PASS**
 2. **你自己验收过**——不是转发评审结论，是你核对过成果确实是要的东西
 
-两道都过了才可以合并。合并之后收不收容器，看配置 `cleanup_after_accept`——
-`orchestration_guide` 的返回里会告诉你当前生效值：
+两道都过了，先合并（你自己在主 checkout 合并，或请人合并），然后调：
 
-- **`keep`（默认）**：**合并之后不收容器。** 人回到侧栏时要能看到现场——
-  留着只是侧栏多一个已完成的 workspace，随时能看能收；收早了不可逆。
-  报告里给足他自己看、自己收所需的一切：
-  - workspace id、分支名、checkout 路径
-  - 两条现成命令：`herdr worktree remove --workspace <id> --force`
-    和 `git branch -d <branch>`
-  - 一句「你可以去侧栏看，看完告诉我我来收，或者自己收」
-- **`auto`**：合并完就收，跟以前一样。
+```
+finalize_run({
+  run_id,
+  verdict: "accept",
+  evidence: {
+    review: "review-opus PASS：逐条核对了验收标准，发现 X 已修复",
+    acceptance: "我亲自核对了 diff、跑了测试，成果是要的东西",
+  },
+})
+```
 
-判据是结构性的，**与配置无关**——配置只影响「已合并且验收通过」这一格是收还是留：
+`evidence` 是**你写的、从外部传入的**——`finalize_run` 绝不解析 worker 的输出去找
+「PASS」字样。它把「为什么验收」原样落盘到结果日志（`state/runs/<run_id>.json`），
+**先落盘，再动手**：停掉本 run 的 agent、收掉 worktree 容器、用 `git branch -d`
+删掉已合并的分支。
 
-| 分支状态 | 处理 |
+**它只信 git 不信转述**：`merge-base --is-ancestor` 核验分支确实并入了 `base_ref`，
+checkout 脏（未提交 / 未跟踪 / 未合并路径）一律拒绝。拒绝=现场原样保留，
+你处理完（合并、commit、清理）再用同一个 `run_id` 重调——它是幂等的，
+部分失败接着上次继续，不会重删已删的东西。
+
+收不收容器看配置 `cleanup_after_accept`（`orchestration_guide` 的返回会告诉你当前生效值）：
+
+- **`auto`（默认）**：验收通过并核验后收掉这个 run 的容器与分支。
+- **`keep`**：`finalize_run({ ..., cleanup: "keep" })`——**照样标 accepted**
+  （完成状态与保留现场是两回事），但容器、分支、pane 全留着给人看。
+  人看完可以说「收了吧」，你再调一次 `cleanup: "auto"` 即可（会重新核验一遍）。
+
+判据是结构性的，**与配置无关**：
+
+| 状态 | 处理 |
 |---|---|
-| 已合并进 base | worktree 没有独占价值了，收不收看 `cleanup_after_accept`：`keep` 留着并在报告里给出收尾命令；`auto` 收 |
-| **未合并** | **绝不动**——里面是唯一的成果 |
-| 评审 FAIL / 你验收没过 | 不动，那是返工现场 |
-| 编排失败、worker 崩了 | 不动，那是排查现场 |
+| 验收通过 + 已合并 + 干净 | `finalize_run` 核验通过，`auto` 收 / `keep` 留 |
+| **未合并 / 脏** | `finalize_run` **拒绝**，现场原样保留——里面是唯一的成果 |
+| 评审 FAIL / 你验收没过 | 根本不该调 `finalize_run`；返工（`send_to_worker` 或 `spawn_worker` 追加） |
+| 编排失败、worker 崩了 | 不调，那是排查现场 |
 
-**MCP 工具里没有任何能删东西的动词，这是刻意的**（`cancel_worker` 连
-`terminate` 都不删）。收尾要用 git 和 herdr 的命令自己做——多这一步摩擦是好事，
-它保证「删」永远是一个明确的决定，而不是某个工具的副作用。
+安全边界是结构性的：`finalize_run` **只清这个 run 台账里登记的对象**——
+workspace、tab、pane、分支全部来自登记，绝不按名字去搜。容器里后来混进了
+不属于本 run 的 tab/pane（人手动加的、别的会话开的）时**拒删**并报告，由人来处置。
+别的 run、人手建的 workspace 永远不在射程内。
 
-默认 `keep` 会留下容器，跑十轮就堆十个 workspace 和十个分支。
-**每次新编排开始前先报一句**「上次还有 N 个已合并但未收的容器」，让人顺手决定收不收——
-否则「不自动收」会退化成「永远不收」，侧栏迟早没法看。查法：`list_workers`
-能看到历史 worker 的 `workspace_id` 与 `branch`，`git branch --merged main`
-能判哪些分支已合并；对得上、已合并、且不在本次编排里的，就是可以收的那些。
+失败的 run 没有「清理」一说：**未验收的 run 永远不会被自动清**，留着就是现场。
 
 ### 评审结论要筛，不能盲转
 
