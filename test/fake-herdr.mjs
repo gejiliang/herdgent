@@ -101,6 +101,18 @@ if (cmd === "agent get") {
 if (cmd === "agent send-keys") ok({});
 if (cmd === "agent read") { process.stdout.write("fake screen\\n"); save(); process.exit(0); }
 if (cmd === "worktree remove") {
+  // 顺序哨兵：破坏性动作发生的这一刻，结果日志里必须已有本次 attempt 的
+  // in_progress 记录——「先落盘再动手」是可检验的，不是注释里的口号。
+  const logPath = process.env.HG_FAKE_RUN_LOG;
+  if (logPath) {
+    let mark = "logcheck:unreadable";
+    try {
+      const log = JSON.parse(readFileSync(logPath, "utf8"));
+      mark = (log.cleanup?.attempts ?? []).some((a) => a.status === "in_progress") ? "logcheck:in_progress" : "logcheck:no_in_progress";
+    } catch { /* unreadable 保持 */
+    }
+    state.calls.push(mark);
+  }
   const wsId = opt("--workspace");
   if (!state.workspaces[wsId]) fail("workspace_not_found");
   delete state.workspaces[wsId];

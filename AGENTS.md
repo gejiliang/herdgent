@@ -118,7 +118,7 @@ herdgent 的产品形态就是跨 harness 编排（见 README），所以「不�
 
 同目录下还有 `profiles.json`（worker profile）与 `workflows/*.md`（自定义编排 playbook）。**`install` 不覆盖这个目录里的任何东西。**
 
-`cleanup_after_accept`：`auto`（默认）/ `keep`，决定 `finalize_run` 验收通过之后收不收那个 run 的容器。**消费者是 `finalize_run`（代码），有完整的安全契约**：显式 `verdict: "accept"` + 外部传入的 evidence（不解析 worker 输出里的 PASS）、rex 用 `git merge-base --is-ancestor` 核验并入指定 base、脏 / 未合并一律拒绝、只清 run 台账登记的对象、发现外来 pane/tab 拒删、分支只用 `git branch -d`、先落盘结果日志再动手、幂等可重试。**GG 2026-09-16 明确批准推翻旧的 keep 默认与「MCP 通道无删除动词」（issue #2）决定**——删除不再是禁忌，但只存在 `finalize_run` 这一条带核验的路径。`keep` 是显式例外：标 accepted、留现场给人看。缺文件 / 坏 JSON / 缺键 / 值非法一律回 `auto`。值经 `orchestration_guide` 的返回送达。失败 / 未验收的 run 永不自动清。
+`cleanup_after_accept`：`auto`（默认）/ `keep`，决定 `finalize_run` 验收通过之后收不收那个 run 的容器。**消费者是 `finalize_run`（代码），有安全契约但没有原子保证**：显式 `verdict: "accept"` + 外部传入的 evidence（严格 string，不解析 worker 输出里的 PASS）、rex 用 `git merge-base --is-ancestor` 核验并入指定 base、脏 / 未合并一律拒绝、只清 run 台账登记的对象、发现外来 pane/tab 拒删、分支只用 `git branch -d`、每次尝试（含重试）先落 in_progress 日志再动手、幂等可重试。**边界要说清**：归属扫描与删除之间是 TOCTOU 的——扫完到 remove 的毫秒级窗口里混进的对象不在防御范围内，这是 best-effort 护栏叠在结构边界上，不是事务；`auto` 的语义也只是【这一次显式 finalize 之后收】，不存在无人值守的自动清扫。**GG 2026-09-16 明确批准推翻旧的 keep 默认与「MCP 通道无删除动词」（issue #2）决定**——删除不再是禁忌，但只存在 `finalize_run` 这一条带核验的路径。`keep` 是显式例外：标 accepted、留现场给人看。缺文件 / 坏 JSON / 缺键 / 值非法一律回 `auto`。值经 `orchestration_guide` 的返回送达。失败 / 未验收的 run 永不自动清。
 
 ## 代码约定
 

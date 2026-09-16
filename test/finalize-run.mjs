@@ -103,7 +103,7 @@ try {
   );
   check("六个 run 都跑完", Object.values(setup).every((x) => x.completed === true), JSON.stringify(Object.keys(ids)));
 
-  // ---- 拒绝路径：未合并 / 缺证据 / 坏 verdict ----
+  // ---- 拒绝路径：未合并 / 缺证据 / 坏 verdict / 非字符串证据 ----
   const refuse = await mcpProbe({
     args: ARGS,
     env: ENV,
@@ -112,6 +112,10 @@ try {
       { key: "noEvidence", name: "finalize_run", arguments: { run_id: ids.runA, verdict: "accept" } },
       { key: "badVerdict", name: "finalize_run", arguments: { run_id: ids.runA, verdict: "reject", evidence: EVIDENCE } },
       { key: "noRun", name: "finalize_run", arguments: { run_id: "run-nope", verdict: "accept", evidence: EVIDENCE } },
+      // 严格 typeof string：number / 数组 / 对象都不能被 String() 强转放行
+      { key: "numEvidence", name: "finalize_run", arguments: { run_id: ids.runA, verdict: "accept", evidence: { review: 42, acceptance: "x" } } },
+      { key: "arrEvidence", name: "finalize_run", arguments: { run_id: ids.runA, verdict: "accept", evidence: { review: "x", acceptance: ["y"] } } },
+      { key: "blankEvidence", name: "finalize_run", arguments: { run_id: ids.runA, verdict: "accept", evidence: { review: "   ", acceptance: "x" } } },
     ],
   });
   check("未合并拒绝", refuse.notMerged.isError && refuse.notMerged.error === "not_merged", JSON.stringify(refuse.notMerged));
@@ -120,6 +124,10 @@ try {
   check("缺证据拒绝", refuse.noEvidence.isError && refuse.noEvidence.error === "evidence_required", JSON.stringify(refuse.noEvidence));
   check("坏 verdict 拒绝", refuse.badVerdict.isError && refuse.badVerdict.error === "bad_verdict", JSON.stringify(refuse.badVerdict));
   check("finalize 也守归属边界", refuse.noRun.isError && refuse.noRun.error === "run_not_found", JSON.stringify(refuse.noRun));
+  check("数字证据拒绝", refuse.numEvidence.isError && refuse.numEvidence.error === "evidence_required", JSON.stringify(refuse.numEvidence));
+  check("数组证据拒绝", refuse.arrEvidence.isError && refuse.arrEvidence.error === "evidence_required", JSON.stringify(refuse.arrEvidence));
+  check("空白串证据拒绝", refuse.blankEvidence.isError && refuse.blankEvidence.error === "evidence_required", JSON.stringify(refuse.blankEvidence));
+  check("被拒后 runA 未验收", getRun(ids.runA).status === "completed", getRun(ids.runA).status);
 
   // ---- 脏 checkout 拒删；收拾干净后重试成功 ----
   const dirtyCheckout = getRun(ids.runB).checkout_path;
@@ -135,13 +143,14 @@ try {
   check("runB 分支已安全删除", !branchExists("feat/ok2"));
 
   // ---- 外来 tab 拒删 workspace；挪走后重试成功 ----
+  const foreignLog = join(state, "runs", `${ids.runForeign}.json`);
   {
     const s = fakeState();
     const ws = getRun(ids.runForeign).workspace_id;
     s.tabs["wX:tForeign"] = { tab_id: "wX:tForeign", workspace_id: ws, label: "人手加的" };
     writeFakeState(s);
   }
-  const foreign = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runForeign)] });
+  const foreign = await mcpProbe({ args: ARGS, env: { ...ENV, HG_FAKE_RUN_LOG: foreignLog }, calls: [fin("f", ids.runForeign)] });
   check("外来 tab 拒删", foreign.f.isError !== true && foreign.f.cleanup_status === "refused_foreign", JSON.stringify(foreign.f).slice(0, 200));
   check("外来 tab 时验收已落盘（完成与现场分离）", getRun(ids.runForeign).status === "accepted", getRun(ids.runForeign).status);
   check("拒删时容器与分支都还在", !!fakeState().workspaces[getRun(ids.runForeign).workspace_id] && branchExists("feat/foreign"));
@@ -150,12 +159,26 @@ try {
     delete s.tabs["wX:tForeign"];
     writeFakeState(s);
   }
-  const foreignRetry = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runForeign)] });
+  const foreignRetry = await mcpProbe({ args: ARGS, env: { ...ENV, HG_FAKE_RUN_LOG: foreignLog }, calls: [fin("f", ids.runForeign)] });
   check("挪走外来 tab 后重试清干净", foreignRetry.f.cleanup_status === "done", JSON.stringify(foreignRetry.f).slice(0, 120));
   check("重试后容器与分支收掉", !fakeState().workspaces[getRun(ids.runForeign).workspace_id] && !branchExists("feat/foreign"));
+  check(
+    "重试的破坏性动作前已落 in_progress 日志",
+    fakeState().calls.includes("logcheck:in_progress") && !fakeState().calls.includes("logcheck:no_in_progress"),
+    fakeState().calls.filter((c) => c.startsWith("logcheck")).join(",") || "no logcheck",
+  );
+  {
+    const attempts = JSON.parse(readFileSync(foreignLog, "utf8")).cleanup.attempts;
+    check(
+      "两次 attempt 都有终态，无滞留 in_progress",
+      attempts.length === 2 && attempts[0].status === "refused_foreign" && attempts[1].status === "done",
+      JSON.stringify(attempts.map((a) => a.status)),
+    );
+  }
 
   // ---- happy path auto + 幂等 ----
-  const happy = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runA)] });
+  const happyLog = join(state, "runs", `${ids.runA}.json`);
+  const happy = await mcpProbe({ args: ARGS, env: { ...ENV, HG_FAKE_RUN_LOG: happyLog }, calls: [fin("f", ids.runA)] });
   check("auto 收尾成功", happy.f.isError !== true && happy.f.cleanup_status === "done", JSON.stringify(happy.f).slice(0, 200));
   check("runA 标 accepted", getRun(ids.runA).status === "accepted" && !!getRun(ids.runA).accepted_at);
   const stepActions = (happy.f.steps ?? []).map((s) => `${s.action}:${s.status}`);
@@ -170,7 +193,13 @@ try {
   check("日志里有证据与尝试记录", logBody.evidence?.review === EVIDENCE.review && Array.isArray(logBody.cleanup?.attempts) && logBody.results?.length === 1, JSON.stringify(logBody).slice(0, 120));
   check("日志记了 merge 核验", logBody.merge_verified?.verified === true && logBody.merge_verified?.base === "main");
 
-  const again = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runA)] });
+  check(
+    "首次破坏性动作前已落 in_progress 日志",
+    fakeState().calls.filter((c) => c === "logcheck:in_progress").length >= 2,
+    fakeState().calls.filter((c) => c.startsWith("logcheck")).join(","),
+  );
+
+  const again = await mcpProbe({ args: ARGS, env: { ...ENV, HG_FAKE_RUN_LOG: happyLog }, calls: [fin("f", ids.runA)] });
   check("幂等重调不炸", again.f.isError !== true && again.f.cleanup_status === "done", JSON.stringify(again.f).slice(0, 120));
   check("重调认得已完成（already gone）", (again.f.steps ?? []).some((s) => String(s.detail).includes("already gone")), JSON.stringify(again.f.steps).slice(0, 160));
   check("尝试记录累加", JSON.parse(readFileSync(logPath, "utf8")).cleanup.attempts.length === 2);
