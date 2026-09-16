@@ -249,6 +249,11 @@ try {
     JSON.stringify(baseStepsA),
   );
   check("共享 base 还在", !!fakeState().workspaces[sharedBase]);
+  check(
+    "kept 必须给调用者明确的待重试提示（不是 done 就吞掉）",
+    String(happy.f.kept_notice ?? "").includes(sharedBase) && /finalize_run again/.test(happy.f.kept_notice ?? ""),
+    String(happy.f.kept_notice ?? "(missing)").slice(0, 160),
+  );
   const logBase = JSON.parse(readFileSync(logPath, "utf8")).base_workspace;
   check(
     "run 日志保留 base 归属证据",
@@ -282,6 +287,7 @@ try {
   );
   check("runSolo 的 base 真没了", !fakeState().workspaces[soloBase], Object.keys(fakeState().workspaces).join(","));
   check("runSolo 分支已删", !branchExistsIn(repo2, "feat/solo"));
+  check("全收干净时没有 kept_notice", solo.f.kept_notice == null, JSON.stringify(solo.f.kept_notice ?? "(none)"));
 
   const pre = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runPre)] });
   check(

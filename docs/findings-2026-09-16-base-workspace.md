@@ -51,7 +51,9 @@
 自建的 base；`startManagedSession` 启动失败的 reclaim 与 `reclaimSession` 同样只收
 「本次创建且未被使用」的 base。`finalize_run` 的 worktree 清理在删分支后追加
 `close_base_workspace` 一步：skipped（无登记=旧 run / 领养）与 kept 不影响结论，
-failed 进 partial 可幂等重试。
+failed 进 partial 可幂等重试。kept 时 finalize 的返回带 `kept_notice`——点名留了什么、
+为什么留，并给出明确的待重试提示（原因消失后用同一个 run_id 重调，幂等补收），
+done 不静默吞掉还在侧栏的空壳。
 
 ## 测试
 

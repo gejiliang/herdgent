@@ -31,12 +31,35 @@ const home = mkdtempSync(join(tmpdir(), "hg-i13-contract-"));
 const socket = join(homedir(), ".config", "herdr", "sessions", SESSION, "herdr.sock");
 
 // 擦干净的环境起隔离 server：不擦会继承当前 pane 的 HERDR_SOCKET_PATH 连回 default。
+// HERDGENT_* 也必须处理：server 会把环境传给它在 pane 里起的一切（含 hook），
+// 带着环境里的 HERDGENT_STATE_DIR / HERDGENT_HOME 就会写到【真】registry——
+// 评审抓到的正是这个：光删不够，还要显式指到临时目录，泄漏路径才没有落点。
 const serverEnv = { ...process.env };
 for (const k of Object.keys(serverEnv)) {
-  if (k.startsWith("HERDR_") || k.startsWith("CLAUDE")) delete serverEnv[k];
+  if (k.startsWith("HERDR_") || k.startsWith("CLAUDE") || k.startsWith("HERDGENT_")) delete serverEnv[k];
 }
 serverEnv.HERDR_SESSION = SESSION;
+mkdirSync(join(home, "state"), { recursive: true });
+mkdirSync(join(home, "config"), { recursive: true });
+serverEnv.HERDGENT_HOME = home;
+serverEnv.HERDGENT_STATE_DIR = join(home, "state");
+serverEnv.HERDGENT_CONFIG_DIR = join(home, "config");
 const server = spawn("herdr", ["server"], { env: serverEnv, stdio: "ignore" });
+
+// 回归断言：隔离 server 的环境里，herdgent 的三个落盘变量必须全部指向临时目录，
+// 且没有任何 HERDGENT_* 指向真家目录（~/.herdgent）——这条挂了，后面跑什么都别信。
+{
+  const realHome = join(homedir(), ".herdgent");
+  const leaked = Object.entries(serverEnv).filter(([k, v]) => k.startsWith("HERDGENT_") && String(v).startsWith(realHome));
+  check(
+    "隔离 server 的 HERDGENT_* 全部指向临时目录，无真 registry 落点",
+    leaked.length === 0 &&
+      serverEnv.HERDGENT_STATE_DIR === join(home, "state") &&
+      serverEnv.HERDGENT_CONFIG_DIR === join(home, "config") &&
+      serverEnv.HERDGENT_HOME === home,
+    leaked.map(([k, v]) => `${k}=${v}`).join(", ") || "clean",
+  );
+}
 
 // 本测试建过的临时 repo（basename 带 pid，全局唯一）。finalize 正常会收掉
 // worktree checkout；若有断言失败中途退出，cleanup 必须把残壳也收走——
@@ -73,6 +96,7 @@ if (!existsSync(socket)) {
 process.env.HERDR_SOCKET_PATH = socket;
 process.env.HERDGENT_HOME = home;
 process.env.HERDGENT_STATE_DIR = join(home, "state");
+process.env.HERDGENT_CONFIG_DIR = join(home, "config");
 delete process.env.HERDR_BIN_PATH; // 用真 herdr
 // 双保险：default socket 的路径里不可能出现这个会话名。
 if (!process.env.HERDR_SOCKET_PATH.includes(SESSION)) {
@@ -85,6 +109,14 @@ const worker = await import(`../lib/worker.mjs?t=${Date.now()}`);
 const finalize = await import(`../lib/finalize.mjs?t=${Date.now()}`);
 const registry = await import(`../lib/registry.mjs?t=${Date.now()}`);
 const herdrLib = await import(`../lib/herdr.mjs?t=${Date.now()}`);
+
+// 回归断言：本进程的 registry 也必须解析到临时目录——lib 是惰性读 env 的，
+// 顺序哪天被改坏（先 import 后设 env），这条会立刻抓住。
+check(
+  "本进程的 registry 解析在临时目录",
+  registry.stateDir().startsWith(home),
+  registry.stateDir(),
+);
 
 const git = (dir, ...args) => spawnSync("git", ["-C", dir, ...args], { encoding: "utf8" });
 const herdrJson = (...args) => {
@@ -285,6 +317,25 @@ try {
   const dClose = herdrJson("workspace", "close", spaceD1.baseWorkspace.workspaceId); // 卫生
   check("D: 全部收干净", !dClose.error && wsIds().length === 0, JSON.stringify(dClose.error ?? wsIds()));
   check("D: 两条分支都删了", !branchExists(repoD, "feat/d1") && !branchExists(repoD, "feat/d2"));
+
+  // ================= 回归：真 registry 一个字节都没被碰 =================
+  // 本测试的工件都有不可冲撞的前缀（contract: / run-c / orc-contract）；
+  // 隔离只要破了一条缝，它们就会出现在 ~/.herdgent/state/registry.json 里。
+  {
+    const realRegistry = join(homedir(), ".herdgent", "state", "registry.json");
+    let contamination = "none";
+    if (existsSync(realRegistry)) {
+      const real = JSON.parse(readFileSync(realRegistry, "utf8"));
+      const badSessions = Object.keys(real.sessions ?? {}).filter((k) => k.startsWith("contract:"));
+      const badRoots = Object.keys(real.orchestrations ?? {}).filter((k) => k === ROOT);
+      const badRuns = Object.values(real.orchestrations ?? {}).flatMap((o) =>
+        Object.keys(o.runs ?? {}).filter((id) => /^run-c\d+$/.test(id)),
+      );
+      const bad = [...badSessions, ...badRoots, ...badRuns];
+      if (bad.length) contamination = bad.join(",");
+    }
+    check("真 registry 未被本测试写入（隔离无泄漏）", contamination === "none", contamination);
+  }
 } finally {
   cleanup();
 }

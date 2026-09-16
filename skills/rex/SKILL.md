@@ -156,7 +156,9 @@ finalize_run({
 基础 workspace，会显式建一个空 shell 并在台账与结果日志里登记归属证据。finalize 只在它
 **确是本 run 所建、且仍未被使用**（没多 tab/pane、没跑 agent、cwd 没动、没改名）时才关闭；
 你或别的 run 已经在用的基础 workspace 绝不碰——并发复用时 herdr 的 group 守卫还会再拦一道。
-被保留不是失败：日志里那一步会写明为什么留。
+被保留不是失败：返回里的 `kept_notice` 会点名留了什么、为什么留。原因是「别的 run 还挂在
+上面」时，等那个 run 收尾后用同一个 `run_id` 再调一次 `finalize_run`——幂等重跑只补收
+这些被留的对象；原因是「人动过」时，那就是人的现场，别去收。
 
 **它只信 git 不信转述**：`merge-base --is-ancestor` 核验分支确实并入了 `base_ref`，
 checkout 脏（未提交 / 未跟踪 / 未合并路径）一律拒绝。拒绝=现场原样保留，
