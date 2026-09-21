@@ -977,7 +977,9 @@ function resolveArtifact(spec, ctx) {
 
 const SETTLED = new Set(["done", "idle", "blocked"]);
 // wait 的兜底上限。不是正常退出路径——正常靠事件。它只保证「判据写错」不会变成永久挂起。
-const WAIT_CEILING_MS = 30 * 60 * 1000;
+// 兜底上限。测试可用 HG_WAIT_CEILING_MS 压小——30 分钟的兜底在假环境里只会把
+// 「实现错了」拖成「测试挂了半小时」。
+const WAIT_CEILING_MS = Number(process.env.HG_WAIT_CEILING_MS) > 0 ? Number(process.env.HG_WAIT_CEILING_MS) : 30 * 60 * 1000;
 
 // 判断一个 worker 是不是【这一轮】结束了。
 //
@@ -1516,11 +1518,20 @@ function waitForWorkers(workerIds) {
       finish();
     };
 
-    for (const w of targets) {
+    // herdr ≥ 0.9.2 的 events_lost（上游 #4225）：突发丢事件从「静默漏推」变成
+    // 「错误行 + 关这条流」。收到后【重订阅】而不是把 worker 判 unreachable——
+    // onReady 的 settledNow 补查正是官方建议的「重订阅 + 取快照」恢复。
+    // 重试按 worker 计上限：抖动循环照样落成 unreachable，不会无限自愈。
+    const MAX_RESUBSCRIBE = 2;
+    const resubCount = new Map();
+
+    const subscribe = (w) => {
+      let lostPending = false;
       const sub = watchPaneStatus(w.pane_id, {
         onReady: () => {
           // 补查一次：订阅建立完成【之前】的状态变化不会被推送，
           // 不补就会漏掉「调用时其实已经结束了」，然后一直等下去。
+          // 重订阅后的这次补查同时就是 events_lost 的官方恢复（重订阅+取快照）。
           const now = settledNow(w.slug);
           if (now) record(w, now.status, "poll", now.seq);
         },
@@ -1529,17 +1540,35 @@ function waitForWorkers(workerIds) {
           const now = settledNow(w.slug);
           if (now) record(w, now.status, "event", now.seq);
         },
+        onProtocolError: (e) => {
+          // 服务器随后会关这条流，onClose 里决定重订阅；其它错误码只留痕。
+          if (e?.code === "events_lost") lostPending = true;
+          else log(`event stream protocol error for ${w.slug}: ${e?.code}: ${e?.message}`);
+        },
         onError: (e) => {
           broken.push({ worker_id: w.slug, reason: `${e.code}: ${e.message}` });
           if (broken.length === targets.length) finish(); // 全都联系不上了，别干等
         },
         onClose: () => {
-          broken.push({ worker_id: w.slug, reason: "event_stream_closed" });
+          if (lostPending && !finished) {
+            const n = resubCount.get(w.slug) ?? 0;
+            if (n < MAX_RESUBSCRIBE) {
+              resubCount.set(w.slug, n + 1);
+              log(`events_lost on ${w.slug} — resubscribing (${n + 1}/${MAX_RESUBSCRIBE}) and re-checking current state`);
+              subscribe(w);
+              return;
+            }
+          }
+          broken.push({
+            worker_id: w.slug,
+            reason: lostPending ? "events_lost (resubscribe limit reached)" : "event_stream_closed",
+          });
           if (broken.length === targets.length) finish();
         },
       });
       subs.push(sub);
-    }
+    };
+    for (const w of targets) subscribe(w);
   });
 }
 

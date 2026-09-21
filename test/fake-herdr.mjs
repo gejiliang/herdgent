@@ -162,7 +162,9 @@ if (cmd === "agent start") {
 if (cmd === "agent get") {
   const p = state.panes[args[2]];
   if (!p || !p.agent) fail("agent_not_found");
-  ok({ agent: { agent_status: "done", state_change_seq: 2, pane_id: args[2], agent_session: { kind: "path", value: process.env.HG_FAKE_TRANSCRIPT } } });
+  // report_* 字段可在 state 里改——等待类测试靠它模拟「还在跑 → 跑完」的推进；
+  // 不能复用 pane 行的 agent_status（那是 detection 状态，provePaneUnused 要看）。
+  ok({ agent: { agent_status: p.report_agent_status ?? "done", state_change_seq: p.report_seq ?? 2, pane_id: args[2], agent_session: { kind: "path", value: process.env.HG_FAKE_TRANSCRIPT } } });
 }
 if (cmd === "agent send-keys") ok({});
 if (cmd === "agent read") { process.stdout.write("fake screen\\n"); save(); process.exit(0); }
