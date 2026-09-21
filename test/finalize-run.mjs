@@ -240,19 +240,19 @@ try {
     fakeState().calls.filter((c) => c.startsWith("logcheck")).join(","),
   );
 
-  // ---- 基础 workspace（issue #13）：共享 base 的归属与 group 守卫 ----
+  // ---- 底座（issue #13；2026-09-21 起常设）：finalize 只记录，任何路径都不关 ----
   const sharedBase = getRun(ids.runA).base_workspace.workspace_id;
   const baseStepsA = (happy.f.steps ?? []).filter((s) => s.action === "close_base_workspace");
   check(
-    "runA 的共享 base 被 group 守卫保留（runKeep/runUnmerged 还挂着）",
-    baseStepsA.length === 1 && baseStepsA[0].status === "kept" && /linked worktree/.test(baseStepsA[0].detail ?? ""),
+    "runA 的共享底座 skipped（常设，留给后续 run）",
+    baseStepsA.length === 1 && baseStepsA[0].status === "skipped" && /standing orchestration base/.test(baseStepsA[0].detail ?? ""),
     JSON.stringify(baseStepsA),
   );
-  check("共享 base 还在", !!fakeState().workspaces[sharedBase]);
+  check("共享底座还在", !!fakeState().workspaces[sharedBase]);
   check(
-    "kept 必须给调用者明确的待重试提示（不是 done 就吞掉）",
-    String(happy.f.kept_notice ?? "").includes(sharedBase) && /finalize_run again/.test(happy.f.kept_notice ?? ""),
-    String(happy.f.kept_notice ?? "(missing)").slice(0, 160),
+    "底座 skipped 不进 kept_notice（全收干净时没有遗留通知）",
+    happy.f.kept_notice == null,
+    JSON.stringify(happy.f.kept_notice ?? "(none)"),
   );
   const logBase = JSON.parse(readFileSync(logPath, "utf8")).base_workspace;
   check(
@@ -281,17 +281,17 @@ try {
   const soloBase = getRun(ids.runSolo).base_workspace.workspace_id;
   check("runSolo finalize done", solo.f.cleanup_status === "done", JSON.stringify(solo.f).slice(0, 160));
   check(
-    "runSolo 独占的 base 一并关闭",
-    (solo.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "done"),
+    "runSolo 独占的底座也留着（常设）",
+    (solo.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped"),
     JSON.stringify(solo.f.steps),
   );
-  check("runSolo 的 base 真没了", !fakeState().workspaces[soloBase], Object.keys(fakeState().workspaces).join(","));
+  check("runSolo 的底座还在", !!fakeState().workspaces[soloBase], Object.keys(fakeState().workspaces).join(","));
   check("runSolo 分支已删", !branchExistsIn(repo2, "feat/solo"));
   check("全收干净时没有 kept_notice", solo.f.kept_notice == null, JSON.stringify(solo.f.kept_notice ?? "(none)"));
 
   const pre = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runPre)] });
   check(
-    "预存在 base → skipped 且 finalize 仍 done",
+    "预存在底座 → skipped 且 finalize 仍 done",
     pre.f.cleanup_status === "done" && (pre.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped"),
     JSON.stringify(pre.f.steps),
   );
@@ -302,7 +302,8 @@ try {
   );
 
   {
-    // 「用户」在 runMod 的 base 里开了一个 tab：base 必须保留，run 自己的容器照收
+    // 「用户」在 runMod 的底座里开了一个 tab：底座是常设的，人在里面干活正当，
+    // finalize 不再探测「动没动过」——一律 skipped，run 自己的容器照收。
     const s = fakeState();
     const baseId = getRun(ids.runMod).base_workspace.workspace_id;
     s.tabs["wX:tUser"] = { tab_id: "wX:tUser", workspace_id: baseId, label: "人开的 tab" };
@@ -311,11 +312,11 @@ try {
   const mod = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", ids.runMod)] });
   const modBase = getRun(ids.runMod).base_workspace.workspace_id;
   check(
-    "base 被动过 → kept，cleanup 仍 done",
-    mod.f.cleanup_status === "done" && (mod.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "kept"),
+    "底座被动过也照常 skipped，cleanup 仍 done",
+    mod.f.cleanup_status === "done" && (mod.f.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped"),
     JSON.stringify(mod.f.steps),
   );
-  check("被动过的 base 与人的 tab 都在", !!fakeState().workspaces[modBase] && !!fakeState().tabs["wX:tUser"]);
+  check("底座与人的 tab 都在", !!fakeState().workspaces[modBase] && !!fakeState().tabs["wX:tUser"]);
   check(
     "runMod 自己的容器与分支照收",
     !fakeState().workspaces[getRun(ids.runMod).workspace_id] && !branchExistsIn(repo4, "feat/mod"),

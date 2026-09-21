@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// issue #13 假 herdr 层：startManagedSession（standalone 路径）的基础 workspace 跟踪。
-//   · 正常路径：base 显式创建并登记归属证据；reclaimSession 时未被使用 → 一并关掉
-//   · 启动失败：本次创建的 base 当场收回（不留壳）
-//   · 启动失败 + 预存在的 base：领养的不动，只收自己的 worktree 容器
+// issue #13 假 herdr 层：startManagedSession（standalone 路径）的底座跟踪。
+// 2026-09-21 起底座常设（resolveBaseWorkspace 长注释）：
+//   · 正常路径：底座显式创建并登记归属证据；reclaimSession 只收 worktree 容器，底座留着
+//   · 启动失败：worktree 容器当场收回，底座留着（给下次调用当 source）
+//   · 启动失败 + 预存在的底座：领养的不动，只收自己的 worktree 容器
 //
 // 隔离是结构性的：HERDR_BIN_PATH 是假 CLI，HERDR_SOCKET_PATH 指向不存在的
 // socket——这个进程【根本连不上】真 herdr（AGENTS.md 铁律）。
@@ -70,12 +71,22 @@ try {
     fakeState().calls.filter((c) => c.startsWith("worktree create")).join(" | "),
   );
 
+  check(
+    "底座 label 与人的同目录 space 区分开（<repo> · runs）",
+    entry.base_workspace?.label === "repo · runs",
+    entry.base_workspace?.label,
+  );
+
   const steps = worker.reclaimSession(entry, { deleteBranch: false });
   check("reclaim 收了 worktree 容器", steps.includes("worktree_removed"), steps.join(","));
-  check("reclaim 把未被使用的 base 也收了", steps.includes("base_workspace_closed"), steps.join(","));
   check(
-    "base 与容器真没了",
-    !fakeState().workspaces[baseId] && !fakeState().workspaces[entry.workspace_id],
+    "reclaim 不收底座（常设，留给后续 run）",
+    steps.some((s) => s.startsWith("base_workspace_kept")),
+    steps.join(","),
+  );
+  check(
+    "容器真没了，底座还在",
+    !fakeState().workspaces[entry.workspace_id] && !!fakeState().workspaces[baseId],
     Object.keys(fakeState().workspaces).join(","),
   );
 
@@ -89,17 +100,23 @@ try {
   }
   check("启动失败抛错", !!err1, err1?.message?.slice(0, 80));
   check(
-    "失败回收包含 base 关闭结果",
-    /reclaimed/.test(err1?.message ?? "") && /base w\d+ closed/.test(err1?.message ?? ""),
+    "失败回收收容器、如实说底座留着",
+    /reclaimed/.test(err1?.message ?? "") && !/base w\d+ closed/.test(err1?.message ?? ""),
     err1?.message,
   );
   check(
-    "本次创建的 base 与 worktree 容器都没留下",
-    Object.keys(fakeState().workspaces).length === 0,
+    "worktree 容器没留下，场景 1 的底座被领养复用（没有新建第二个）",
+    !Object.values(fakeState().workspaces).some((w) => w.kind === "worktree") &&
+      Object.keys(fakeState().workspaces).length === 1 &&
+      !!fakeState().workspaces[baseId],
     Object.keys(fakeState().workspaces).join(","),
   );
   const failedRow = registry.list().find((s) => s.status === "failed");
-  check("失败也落台账", !!failedRow && !!failedRow.base_workspace?.workspace_id, failedRow?.failure);
+  check(
+    "失败也落台账（领养场景 1 的底座）",
+    !!failedRow && failedRow.base_workspace?.workspace_id === baseId && failedRow.base_workspace?.created_by_run === false,
+    JSON.stringify(failedRow?.base_workspace),
+  );
 
   // ---- 启动失败 + 预存在的 base：领养的一个指头都不碰 ----
   {
@@ -116,9 +133,10 @@ try {
   } catch (e) {
     err2 = e;
   }
-  check("预存在 base 下启动照样失败", !!err2, err2?.message?.slice(0, 80));
+  check("预存在底座下启动照样失败", !!err2, err2?.message?.slice(0, 80));
   const failedRow2 = registry.list().filter((s) => s.status === "failed").at(-1);
   check("台账记下领养关系", failedRow2?.base_workspace?.created_by_run === false && failedRow2.base_workspace.workspace_id === "wPre");
+  check("本次没有新建底座（领养了 wPre）", !fakeState().calls.some((c) => c.startsWith("workspace create") && c.includes(repo2)), "");
   check(
     "预存在的 wPre 原样保留（连 tab/pane 都在）",
     !!fakeState().workspaces.wPre && !!fakeState().tabs["wPre:t1"] && !!fakeState().panes["wPre:p1"],

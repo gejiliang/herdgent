@@ -146,7 +146,8 @@ try {
   }
   const finA2 = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", runA)] });
   check("A: 挪走外来 pane 后重试清干净", finA2.f.cleanup_status === "done", JSON.stringify(finA2.f).slice(0, 160));
-  check("A: 容器、分支、自建 base 全收掉", !fakeState().workspaces[getRun(runA).workspace_id] && !branchExists("feat/sr-a") && !fakeState().workspaces[getRun(runA).base_workspace.workspace_id]);
+  // 2026-09-21 起底座常设：finalize 收容器与分支，底座留着给后续 run。
+  check("A: 容器与分支收掉，自建底座留着（常设）", !fakeState().workspaces[getRun(runA).workspace_id] && !branchExists("feat/sr-a") && !!fakeState().workspaces[getRun(runA).base_workspace.workspace_id]);
 
   // ================= B. root 被「用户」占用 → 保守 split + 拒删；用户离开后重试成功 =================
   const planB = await mcpProbe({
@@ -191,7 +192,7 @@ try {
   }
   const finB2 = await mcpProbe({ args: ARGS, env: ENV, calls: [fin("f", runB)] });
   check("B: 用户离开后重试——root 现查未被使用 → 收干净", finB2.f.cleanup_status === "done", JSON.stringify(finB2.f).slice(0, 160));
-  check("B: 容器、分支、自建 base 全收掉", !fakeState().workspaces[getRun(runB).workspace_id] && !branchExists("feat/sr-b") && !fakeState().workspaces[getRun(runB).base_workspace.workspace_id]);
+  check("B: 容器与分支收掉，自建底座留着（常设）", !fakeState().workspaces[getRun(runB).workspace_id] && !branchExists("feat/sr-b") && !!fakeState().workspaces[getRun(runB).base_workspace.workspace_id]);
 
   // ================= C. root 里有「用户 agent」→ 保守 split + 拒删 =================
   const planC = await mcpProbe({

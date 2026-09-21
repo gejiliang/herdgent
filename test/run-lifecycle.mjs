@@ -131,8 +131,8 @@ try {
   const base1 = getRun(run1).base_workspace;
   const base2 = getRun(run2).base_workspace;
   check(
-    "run1 登记了自己创建的基础 workspace 与证据",
-    base1?.created_by_run === true && !!base1.workspace_id && !!base1.label && !!base1.expected_cwd && !!base1.evidence,
+    "run1 登记了自己创建的底座与证据（label 为 <repo> · runs）",
+    base1?.created_by_run === true && !!base1.workspace_id && base1.label?.endsWith(" · runs") && !!base1.expected_cwd && !!base1.evidence,
     JSON.stringify(base1),
   );
   check(

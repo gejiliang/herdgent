@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // issue #13 真实 CLI 契约测试：在【命名隔离会话】里跑真 herdr，
-// 逐条验证修复所依赖的上游契约，并拿真 create/finalize 路径过四个场景：
-//   契约抽验 —— 隐式创建（issue 本身）、source_workspace_id、group 守卫
-//   A. rex 正常流 —— 本次创建的 base 被登记，finalize 后连它一起收干净
-//   B. 预存在的 base —— 领养不拥有，finalize 后原样保留
-//   C. base 被「用户」改动 —— finalize 保留（kept 是安全结果，不是失败）
-//   D. 两个 run 共用一个 base —— 创建者 finalize 时 group 守卫拒关，谁也不误删谁
+// 逐条验证修复所依赖的上游契约，并拿真 create/finalize 路径过四个场景。
+// 2026-09-21 起底座常设（resolveBaseWorkspace 长注释）：finalize 对底座只记 skipped，
+// 任何路径都不关——四个场景随之改写，卫生关闭由测试自己做。
+//   契约抽验 —— 隐式创建（issue 本身）、source_workspace_id、group 守卫、
+//              source 的 root pane cwd 必须在 repo 内（not_git_worktree）、--workspace|--cwd 互斥
+//   A. rex 正常流 —— 底座登记为本次创建，finalize skipped，底座留作常设
+//   B. 预存在的底座 —— 领养，finalize 后原样保留
+//   C. 底座被「用户」改动 —— 不再探测，照样 skipped；run 自己的容器照收
+//   D. 两个 run 共用一个底座 —— 第二个领养；两次 finalize 都 skipped，谁也不动它
 //
 // 不需要模型——只建空 shell 容器与临时 git 仓库。会话、workspace、worktree、
 // 分支在退出前全部自清。
@@ -108,7 +111,6 @@ if (!process.env.HERDR_SOCKET_PATH.includes(SESSION)) {
 const worker = await import(`../lib/worker.mjs?t=${Date.now()}`);
 const finalize = await import(`../lib/finalize.mjs?t=${Date.now()}`);
 const registry = await import(`../lib/registry.mjs?t=${Date.now()}`);
-const herdrLib = await import(`../lib/herdr.mjs?t=${Date.now()}`);
 
 // 回归断言：本进程的 registry 也必须解析到临时目录——lib 是惰性读 env 的，
 // 顺序哪天被改坏（先 import 后设 env），这条会立刻抓住。
@@ -194,12 +196,6 @@ const fin = (runId) =>
     cleanupMode: "auto",
     logRoot: join(home, "state", "runs"),
   });
-// 关闭判据要看 pane 的 shell 提示符；刚建完容器时 shell 可能还没就绪，先等稳。
-function waitBaseShell(baseId) {
-  const paneId = herdrJson("pane", "list", "--workspace", baseId).result.panes[0].pane_id;
-  herdrLib.waitForShell(paneId);
-}
-
 try {
   // ================= 契约抽验：修复依赖的上游行为，逐条对得上才继续 =================
   const repoP = mkRepo(`repoP-${process.pid}`);
@@ -219,30 +215,43 @@ try {
   check("契约: 子没了之后 primary 可关", !closeOk.error, JSON.stringify(closeOk.error ?? closeOk.result));
   git(repoP, "branch", "-d", "probe/x");
 
+  // 底座常设决策依赖的两条 source 约束（0.9.1 实测，docs/findings-2026-09-21-base-permanent.md）：
+  // 人的对象根 space 当不了 source，所以「挂在人已开着的 space 下」在 herdr 层不可行。
+  const objRoot = join(home, `objroot-${process.pid}`);
+  mkdirSync(objRoot);
+  const objWs = herdrJson("workspace", "create", "--cwd", objRoot, "--label", "objroot", "--no-focus").result.workspace.workspace_id;
+  const notGit = herdrJson("worktree", "create", "--workspace", objWs, "--label", "x", "--no-focus");
+  check("契约: root cwd 非 repo 的 source 报 not_git_worktree", notGit.error?.code === "not_git_worktree", JSON.stringify(notGit.error));
+  const both = spawnSync("herdr", ["worktree", "create", "--workspace", objWs, "--cwd", repoP, "--no-focus"], { encoding: "utf8" });
+  check("契约: --workspace 与 --cwd 互斥", both.status !== 0 && String(both.stderr || both.stdout).includes("--workspace ID | --cwd PATH"), String(both.stderr || both.stdout).slice(0, 80));
+  herdrJson("workspace", "close", objWs);
+
   // ================= A. rex 正常流 =================
   const repoA = mkRepo(`repoA-${process.pid}`);
   const spaceA = worker.createOrchestrationSpace({ repo: repoA, label: "rex · 契约A", branch: "feat/a" });
-  check("A: base 由本次创建并登记", spaceA.baseWorkspace?.createdByUs === true && !!spaceA.baseWorkspace.workspaceId, JSON.stringify(spaceA.baseWorkspace));
-  check("A: 一 base 一 worktree 两个 workspace", wsIds().length === 2, wsIds().join(","));
-  waitBaseShell(spaceA.baseWorkspace.workspaceId);
+  check("A: 底座由本次创建并登记", spaceA.baseWorkspace?.createdByUs === true && !!spaceA.baseWorkspace.workspaceId, JSON.stringify(spaceA.baseWorkspace));
+  check("A: 底座 label 是 <repo> · runs", spaceA.baseWorkspace?.label === `${basename(repoA)} · runs`, spaceA.baseWorkspace?.label);
+  check("A: 一底座一 worktree 两个 workspace", wsIds().length === 2, wsIds().join(","));
   const runA = registerRun(spaceA, repoA, "feat/a");
   const resA = fin(runA);
   check("A: finalize done", resA.cleanup_status === "done", JSON.stringify(resA.steps));
   check(
-    "A: base 关闭步骤 done",
-    (resA.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "done"),
+    "A: 底座步骤 skipped（常设）",
+    (resA.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped" && /standing orchestration base/.test(s.detail ?? "")),
     JSON.stringify(resA.steps),
   );
-  check("A: workspace 全收干净", wsIds().length === 0, wsIds().join(","));
+  check("A: run 容器收了，底座留着", !wsIds().includes(spaceA.workspaceId) && wsIds().includes(spaceA.baseWorkspace.workspaceId), wsIds().join(","));
   check("A: 分支已用 -d 删除", !branchExists(repoA, "feat/a"));
   check("A: 台账保留归属证据", (registry.getRun(ROOT, runA).base_workspace?.evidence ?? "").includes("workspace_id="), registry.getRun(ROOT, runA).base_workspace?.evidence);
   const logA = JSON.parse(readFileSync(join(home, "state", "runs", `${runA}.json`), "utf8"));
   check(
-    "A: run 日志记了 base 与关闭步骤",
+    "A: run 日志记了底座与 skipped 步骤",
     logA.base_workspace?.workspace_id === spaceA.baseWorkspace.workspaceId &&
-      (logA.cleanup?.attempts ?? []).flatMap((a) => a.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "done"),
+      (logA.cleanup?.attempts ?? []).flatMap((a) => a.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped"),
     JSON.stringify(logA.base_workspace),
   );
+  const aClose = herdrJson("workspace", "close", spaceA.baseWorkspace.workspaceId); // 卫生：底座由测试自己收
+  check("A: 卫生关闭成功", !aClose.error && wsIds().length === 0, JSON.stringify(aClose.error ?? wsIds()));
 
   // ================= B. 预存在的 base 保留 =================
   const repoB = mkRepo(`repoB-${process.pid}`);
@@ -264,19 +273,18 @@ try {
   const preClose = herdrJson("workspace", "close", preBase); // 测试卫生：人手工收自己的
   check("B: 手工收尾成功（无子可关）", !preClose.error && wsIds().length === 0, JSON.stringify(preClose.error ?? wsIds()));
 
-  // ================= C. base 被「用户」改动后保留 =================
+  // ================= C. 底座被「用户」改动也照常 skipped =================
   const repoC = mkRepo(`repoC-${process.pid}`);
   const spaceC = worker.createOrchestrationSpace({ repo: repoC, label: "rex · 契约C", branch: "feat/c" });
-  waitBaseShell(spaceC.baseWorkspace.workspaceId);
   herdrJson("tab", "create", "--workspace", spaceC.baseWorkspace.workspaceId, "--label", "人的 tab", "--no-focus");
   const runC = registerRun(spaceC, repoC, "feat/c");
   const resC = fin(runC);
   check(
-    "C: base 被动过 → kept，cleanup 仍 done",
-    resC.cleanup_status === "done" && (resC.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "kept"),
+    "C: 底座被动过也 skipped（常设，不再探测），cleanup 仍 done",
+    resC.cleanup_status === "done" && (resC.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped"),
     JSON.stringify(resC.steps),
   );
-  check("C: base 与人的 tab 都在", wsIds().includes(spaceC.baseWorkspace.workspaceId), wsIds().join(","));
+  check("C: 底座与人的 tab 都在", wsIds().includes(spaceC.baseWorkspace.workspaceId), wsIds().join(","));
   check("C: run 自己的 worktree 与分支照收", !wsIds().includes(spaceC.workspaceId) && !branchExists(repoC, "feat/c"));
   const cClose = herdrJson("workspace", "close", spaceC.baseWorkspace.workspaceId); // 卫生：子已收，守卫放行
   check("C: 卫生关闭成功", !cClose.error && wsIds().length === 0, JSON.stringify(cClose.error ?? wsIds()));
@@ -292,17 +300,16 @@ try {
       spaceD2.baseWorkspace.workspaceId === spaceD1.baseWorkspace.workspaceId,
     `D1=${JSON.stringify(spaceD1.baseWorkspace)} D2=${JSON.stringify(spaceD2.baseWorkspace)}`,
   );
-  waitBaseShell(spaceD1.baseWorkspace.workspaceId);
   const runD1 = registerRun(spaceD1, repoD, "feat/d1");
   const resD1 = fin(runD1);
   check(
-    "D: 创建者 finalize → group 守卫拒关 base（kept），其余 done",
+    "D: 创建者 finalize → 底座 skipped（常设），其余 done",
     resD1.cleanup_status === "done" &&
-      (resD1.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "kept" && /linked worktree/.test(s.detail ?? "")),
+      (resD1.steps ?? []).some((s) => s.action === "close_base_workspace" && s.status === "skipped"),
     JSON.stringify(resD1.steps),
   );
   check(
-    "D: base 与 D2 的容器都活着",
+    "D: 底座与 D2 的容器都活着",
     wsIds().includes(spaceD1.baseWorkspace.workspaceId) && wsIds().includes(spaceD2.workspaceId),
     wsIds().join(","),
   );
