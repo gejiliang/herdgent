@@ -57,7 +57,7 @@ function run(cmd, args) {
 
 // ---- 前置依赖检查 ----
 // 逐段比数字，不是字符串比较：字符串比较会把 0.8.10 判成低于 0.8.0。
-const MIN_HERDR = [0, 9, 0]; // 与 herdr-plugin.toml 的 min_herdr_version 同步
+const MIN_HERDR = [0, 9, 1]; // 与 herdr-plugin.toml 的 min_herdr_version 同步
 const MIN_NODE = [20, 11, 0];
 
 function parseVersion(text) {

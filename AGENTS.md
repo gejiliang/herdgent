@@ -4,7 +4,8 @@
 > 只写「在这个目录里干活才需要的东西」；harness 独有的落点写进末尾对应小节。全局配置 `~/.agents/AGENTS.md` 已注入，不复述。
 > 项目是什么、现状如何见 [`README.md`](README.md)；实测踩过的坑见 [`docs/findings-2026-07-31.md`](docs/findings-2026-07-31.md)（0.7.5 时代）与 [`docs/findings-2026-08-05.md`](docs/findings-2026-08-05.md)（0.8.0 时代，含许可证变更与新的可观测面）与 [`docs/findings-2026-09-08.md`](docs/findings-2026-09-08.md)（0.9.0 时代：提交语义与 blocked 契约）；
 > 两个编排参照物的实测画像见 [`docs/orchestrators-compared.md`](docs/orchestrators-compared.md)；
-> 哪些模型现在真的能跑（以及为什么 OpenAI 整条线不在表里了）见 [`docs/model-availability-2026-08-12.md`](docs/model-availability-2026-08-12.md)。
+> 哪些模型现在真的能跑（以及为什么 OpenAI 整条线不在表里了）见 [`docs/model-availability-2026-08-12.md`](docs/model-availability-2026-08-12.md)；
+> dsh 与 pi 的 headless 能力实测（配置在线上对齐；含 pi 只读档不成边界这一条）见 [`docs/harness-dsh-vs-pi-2026-08-15.md`](docs/harness-dsh-vs-pi-2026-08-15.md)。
 
 ## 不可逆约束
 

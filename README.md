@@ -282,7 +282,7 @@ server 重启后的 headless 恢复行为随 herdr 版本不同，两版都实�
 - **0.7.5**：只恢复布局、不恢复运行时——agent 进程全被杀，但 `agent list` 仍报它们 `idle` + `interactive_ready: true`（pane 侧报 `pane_not_found`）。**只看 agent 接口的编排器会对着尸体发指令。**
 - **0.8.0**：反过来了——agent 接口诚实了（`agent_not_found`），但 pane 被恢复（shell 重新起来），`pane process-info` 对死 agent **成功返回**。
 
-所以 0.7.5 时代定的判据「`process-info` 探得活就算活」在 0.8.0 下失效：实测 `bin/reconcile.mjs` 把一个确认已死的 agent 判成活的，幽灵记录永久占住并发额度。**判据要问「这个 pane 上还有我们的 agent 吗」，不是「这个 pane 还在吗」**——对账已改为以 agent 是否还在为判据，**herdgent 要求 herdr ≥ 0.9.0**（只跟最新版，见 AGENTS.md）。上面两版对比留着不是兼容性承诺，是教训的证据：**上游行为会整个反转，所以判据必须标明版本**。
+所以 0.7.5 时代定的判据「`process-info` 探得活就算活」在 0.8.0 下失效：实测 `bin/reconcile.mjs` 把一个确认已死的 agent 判成活的，幽灵记录永久占住并发额度。**判据要问「这个 pane 上还有我们的 agent 吗」，不是「这个 pane 还在吗」**——对账已改为以 agent 是否还在为判据，**herdgent 要求 herdr ≥ 0.9.1**（只跟最新版，见 AGENTS.md）。上面两版对比留着不是兼容性承诺，是教训的证据：**上游行为会整个反转，所以判据必须标明版本**。
 
 0.9.0（2026-09-07）没再动恢复行为，动的是 agent 契约的三处：`agent prompt` 自带 Enter、blocked 时拒收（`agent_blocked`）、
 启动期 blocked 报 `agent_not_ready`。三处都已跟进，实测见 [docs/findings-2026-09-08.md](docs/findings-2026-09-08.md)。
