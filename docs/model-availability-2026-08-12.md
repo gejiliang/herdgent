@@ -60,7 +60,7 @@ pi -p --no-session --model quota-proxy/<model> \
 
 ```sh
 KEY=$(pi auth print-api-key --provider quota-proxy --model kimicode-k3)
-curl -s -H "Authorization: Bearer $KEY" https://newapi.gejiliang.com/v1/models
+curl -s -H "Authorization: Bearer $KEY" https://<quota-proxy 网关地址>/v1/models
 ```
 
 ## 四、由此改了什么
