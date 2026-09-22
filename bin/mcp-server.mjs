@@ -1005,6 +1005,18 @@ function settledNow(slug) {
   if (!SETTLED.has(status)) return null;
   const seq = agent.state_change_seq;
 
+  // blocked 是「需要人介入」的落定，不是「有新产出」：它在等人应答，
+  // turns 判据永远不会成立——拿它当普通终态只会把 wait 挂到兜底上限
+  //（2026-09-22 实测：非 yolo claude 的信任框把 run_plan 挂了 30 分钟）。
+  // 直接落定成 blocked，编排者按 waitFailureReason 的指引看屏幕、应答、再等。
+  if (status === "blocked") {
+    registry.update((reg) => {
+      const row = Object.values(reg.sessions).find((x) => x.slug === slug);
+      if (row) row.agent_status = status;
+    });
+    return { status, seq };
+  }
+
   let turns = null;
   try {
     turns = readWorkerResult(slug).assistant_turns;

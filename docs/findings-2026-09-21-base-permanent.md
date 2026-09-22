@@ -78,5 +78,6 @@ worktree 容器与分支收干净（finalize 既有行为），底座一个常�
   LSR finalize 时若跑的是旧代码会按旧判据尝试关闭（未被使用则关掉，无妨）；若 GG 动过
   则 kept 留下——之后会被当 primary 领养继续当底座，只是 label 不带 · runs。
   嫌乱可手动关，下个 run 自建新底座。
-- integration-mcp.mjs / integration-crossharness.mjs 还是旧契约（裸 spawn），
-  没跟上 run_id_required；本次未修，真实回归由 integration-real-worker.mjs 承担。
+- integration-mcp.mjs / integration-crossharness.mjs（旧裸 spawn 契约）已于 2026-09-22 删除，
+  由 integration-real-worker.mjs（rex/fox 全链路）与 integration-verbs.mjs（动词与中断复用、
+  并发闸、claude 通道）接替。
