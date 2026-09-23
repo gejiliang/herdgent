@@ -8,10 +8,11 @@
 - 现象：任何路径起 claude（herdr agent、隔离 session、本机正常环境 `claude -p`）
   都报 **"Your organization has disabled Claude subscription access for Claude Code ·
   Use an Anthropic API key instead"**；TUI 状态栏同时显示 "5H: [Rate limited]"。
-- **GG 2026-09-22 裁决并已于当日实施**：Claude 不再使用，harness 只用 pi，按 qp2
-  可用模型更新 profile——impl-sonnet / review-opus 移出表；impl-gpt（gpt-6-astra，
-  OpenAI 线回归）回补为第二主力；review-deepseek 补 S+ 座；模型名以 qp2
-  `/v1/models` 清单为准（ark-kimi-k3 / ark-glm-5.3 / deepseek-v4-pro）。
+- **GG 2026-09-22 裁决 Claude 不再使用、harness 只用 pi；2026-09-23 再定档位**：
+  Astra（gpt-6-astra）只做评审、是唯一 S+（mid）；实现 impl-glm（GLM-5.3-flash）+
+  impl-deepseek（DeepSeek-v4.1-flash，ark），fallback impl-deepseek-official（官方 API）；
+  评审 S 档 review-kimi / review-glm；探索 explore-astra；DeepSeek v4 全系退役。
+  （0922 的过渡排法 impl-kimi+impl-gpt / review-deepseek 补 S+ 仅一天即被取代。）
   埋 bug 小测：deepseek-v4-pro / gpt-6-astra / step-5-preview / ark-kimi-k3 都抓到
   核心缺陷，ark-glm-5.3 在 2500 tok 预算零产出。lib/harness/claude.mjs 保留。
 - integration-verbs 的 claude 段改用测试自带的临时用户 profile（probe-claude），

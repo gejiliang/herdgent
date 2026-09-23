@@ -30,7 +30,7 @@ const { sessionStartProfile, applyProfile, getProfile, DEFAULT_SESSION_START_PRO
 
 // ---- 默认值本身要成立 ----
 {
-  check("默认不是 fallback 专用的 impl-glm", DEFAULT_SESSION_START_PROFILE !== "impl-glm", DEFAULT_SESSION_START_PROFILE);
+  check("默认不是 fallback 专用的 impl-deepseek-official", DEFAULT_SESSION_START_PROFILE !== "impl-deepseek-official", DEFAULT_SESSION_START_PROFILE);
   const spec = applyProfile({ profile: DEFAULT_SESSION_START_PROFILE });
   const p = getProfile(DEFAULT_SESSION_START_PROFILE);
   check(
@@ -53,8 +53,8 @@ const { sessionStartProfile, applyProfile, getProfile, DEFAULT_SESSION_START_PRO
 // ---- 情况 2：配置合法 → 用配置里写的 ----
 {
   const dir = mkdtempSync(join(tmpdir(), "hg-sscfg-"));
-  writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: "impl-kimi" }));
-  check("合法配置 → 配置里的 profile", sessionStartProfile(dir) === "impl-kimi");
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: "impl-glm" }));
+  check("合法配置 → 配置里的 profile", sessionStartProfile(dir) === "impl-glm");
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -77,7 +77,7 @@ const { sessionStartProfile, applyProfile, getProfile, DEFAULT_SESSION_START_PRO
 // ---- 情况 3b：JSON 合法但字段类型不对 → 不抛异常，回默认 ----
 {
   const dir = mkdtempSync(join(tmpdir(), "hg-sscfg-"));
-  for (const bad of [123, ["impl-kimi"], null, { name: "impl-kimi" }, true]) {
+  for (const bad of [123, ["impl-glm"], null, { name: "impl-glm" }, true]) {
     writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: bad }));
     let threw = false;
     let name = null;
@@ -100,9 +100,9 @@ const { sessionStartProfile, applyProfile, getProfile, DEFAULT_SESSION_START_PRO
 // startManagedSession，spec 对就说明会传下去。
 {
   const dir = mkdtempSync(join(tmpdir(), "hg-sscfg-"));
-  writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: "impl-kimi" }));
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ session_start_profile: "impl-glm" }));
   const spec = applyProfile({ profile: sessionStartProfile(dir) });
-  const p = getProfile("impl-kimi");
+  const p = getProfile("impl-glm");
   for (const key of ["harness", "model", "yolo", "effort", "prompt"]) {
     const expected = p[key] ?? (key === "yolo" ? false : null);
     check(

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // 真实 worker 隔离回归（2026-09-17 评估欠账，2026-09-21 补）：真 herdr + 真模型，
 // 按【当前契约】跑一遍 rex/fox 全链路——
-//   rex：run_plan（impl-kimi 真干活）→ completed → finalize 未合并拒收 →
+//   rex：run_plan（impl-glm 真干活）→ completed → finalize 未合并拒收 →
 //        merge 后重调 done → 容器/分支收掉、底座 skipped 常设（2026-09-21 新语义）
-//   fox：run_plan（explore-deepseek 只读）→ finalize 收本 run 的 tab，宿主 workspace 不动
+//   fox：run_plan（explore-astra 只读）→ finalize 收本 run 的 tab，宿主 workspace 不动
 //
 // 不进的 npm test。按隔离配方跑（全部环境都在临时目录与命名 session 里）：
 //   node test/integration-real-worker.mjs
@@ -139,7 +139,7 @@ const branchExists = (name) => git(repo, "branch", "--list", name).stdout.trim()
 try {
   await send("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
 
-  // ================= rex：真 impl-kimi 干活 =================
+  // ================= rex：真 impl-glm 干活 =================
   const t0 = Date.now();
   const plan = await callTool("run_plan", {
     label: "真实回归",
@@ -147,7 +147,7 @@ try {
     steps: [
       {
         id: "impl",
-        profile: "impl-kimi",
+        profile: "impl-glm",
         title: "真实回归 impl",
         task:
           "Create a file named REAL_RUN_OK.txt at the repo root whose entire content is the single line REAL_RUN_OK, " +
@@ -206,7 +206,7 @@ try {
     steps: [
       {
         id: "survey",
-        profile: "explore-deepseek",
+        profile: "explore-astra",
         title: "真实回归 survey",
         task: "Answer in one short sentence: what is the commit subject of the latest commit on the current branch of this repo?",
       },

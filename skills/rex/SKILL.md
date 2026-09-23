@@ -48,8 +48,8 @@ review 打回、worker 跑废、或者同一步要加一份力——都用
 
 ```
 run_plan({ label: "重构认证", steps: [
-  { id:"impl",   title:"impl",   profile:"impl-kimi", task:"..." },
-  { id:"review", title:"review", profile:["review-deepseek","review-kimi"],
+  { id:"impl",   title:"impl",   profile:"impl-glm", task:"..." },
+  { id:"review", title:"review", profile:["review-astra","review-kimi"],
     attach:"diff_of:impl", task:"审查 {{attached}} …" },
 ]})
 ```
@@ -80,45 +80,46 @@ run_plan({ label: "重构认证", steps: [
 同一家评自己写的东西会一起漏掉同一类问题。这是 herdgent 存在的理由。
 
 只读是各家引擎级强制的，不是靠嘱咐。配对时**看 `list_profiles` 里的 `vendor` 字段**，
-不是看 profile 名，也不是看 harness——`review-kimi` 与 `review-deepseek` 都走 pi 却是两家：
+不是看 profile 名，也不是看 harness——`review-kimi` 与 `review-glm` 都走 pi 却是两家：
 
 | 实现用了 | 就别派 |
 |---|---|
-| `impl-kimi`（moonshot） | `review-kimi` |
-| `impl-gpt`（openai） | `review-gpt` |
-| `impl-glm`（zhipu） | —— 没有同厂评审，随便配 |
+| `impl-glm`（zhipu） | `review-glm` |
+| `impl-deepseek` / `impl-deepseek-official`（deepseek） | —— 没有同厂评审，随便配 |
 
-**难判断的活把 S+ 留给它**：`review-deepseek` 是 S+ 座，优先配给最难的那一路；
-其余路配 `review-kimi` / `review-gpt`（都是 S 档）。
+**难判断的活把 S+ 留给它**：`review-astra` 是唯一 S+（Astra mid），优先配给最难的那一路；
+其余路配 `review-kimi` / `review-glm`（都是 S 档，思考等级拉满）。
 
 ## profile 是唯一入口
 
 `list_profiles`。一个 profile 打包了 harness、模型、思考等级、提示词和权限，
 **只能整包选，不能按次覆盖**——工具的参数表里根本没有 `harness` / `model` 这两项。
 
-实现（S 级，思考等级拉满）：
-- `impl-kimi` —— Kimi K3（月之暗面） ← **主力**
-- `impl-gpt` —— GPT-6 Astra（OpenAI） ← **主力**
-- `impl-glm` —— GLM-5.3（智谱） ← **fallback，见下**
+实现（思考等级拉满）：
+- `impl-glm` —— GLM-5.3 Flash（智谱） ← **主力**
+- `impl-deepseek` —— DeepSeek V4.1 Flash（ark 通道） ← **主力**
+- `impl-deepseek-official` —— 同一模型走 DeepSeek 官方 API ← **fallback，见下**
 
-评审（只读，思考等级拉满）：
-- `review-deepseek` —— DeepSeek V4 Pro（**S+ 座**）
-- `review-kimi` —— Kimi K3（S 档）
-- `review-gpt` —— GPT-6 Astra（S 档）
+评审（只读）：
+- `review-astra` —— GPT-6 Astra（**唯一 S+，思考强度 mid**）
+- `review-kimi` —— Kimi K3（S 档，max）
+- `review-glm` —— GLM-5.3（S 档，max）
 
 探索：
-- `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，用在大扇出粗筛
+- `explore-astra` —— GPT-6 Astra（mid），大扇出粗筛
 
-> **2026-09-22 起 harness 只用 pi**：Claude 订阅被组织禁用（impl-sonnet / review-opus
-> 已删，回来了再加）；GPT 线 2026-09 回归（impl-gpt / review-gpt 回补，gpt-6-astra）。
-> 全部走 quota-proxy 网关，模型名以网关 /v1/models 清单为准。
+> **档位是 GG 2026-09-23 定的**（推翻 0922 过渡排法）：Astra 只评审、是唯一 S+；
+> 实现用 GLM-5.3-flash + DeepSeek-v4.1-flash；DeepSeek V4 / V4 Flash 全系退役；
+> harness 只用 pi，模型名以网关 /v1/models 清单为准。
 
-### `impl-glm` 是 fallback，不是第三个主力
+### `impl-deepseek-official` 是 fallback，不是第三个主力
 
-实现一律派 `impl-kimi` 和 `impl-gpt`——**只有这两个都不可用时才派 `impl-glm`**。
+实现一律派 `impl-glm` 和 `impl-deepseek`——**只有这两个都不可用时才派
+`impl-deepseek-official`**（它跟 impl-deepseek 是同一模型，只是走 DeepSeek 官方 API
+通道，ark 通道挂了才有意义）。
 
 要更多并行算力，就多派前两个（同一个 profile 可以派好几份，给它们互不重叠的活），
-不要因为「再来一家厂商更好」就把 `impl-glm` 拉进常规编排。
+不要因为「再来一家厂商更好」就把 fallback 拉进常规编排。
 
 没有合适的 profile 就**跟人说**，别试图拼一个出来。要长期加一个角色，
 写进 `~/.herdgent/config/profiles.json`——那是留痕的，临时覆盖不是。
@@ -137,7 +138,7 @@ finalize_run({
   run_id,
   verdict: "accept",
   evidence: {
-    review: "review-deepseek PASS：逐条核对了验收标准，发现 X 已修复",
+    review: "review-astra PASS：逐条核对了验收标准，发现 X 已修复",
     acceptance: "我亲自核对了 diff、跑了测试，成果是要的东西",
   },
 })

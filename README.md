@@ -209,7 +209,7 @@ run_preset(preset, inputs)          跑
 | | |
 |---|---|
 | `bin/mcp-server.mjs` | 编排工具通道，orchestrator 的 stdio 子进程 |
-| `bin/session-start.mjs` | 起一个独立的受管会话（plugin action）；也走 profile，用哪个由插件配置 `config.json` 的 `session_start_profile` 决定，默认 `impl-kimi` |
+| `bin/session-start.mjs` | 起一个独立的受管会话（plugin action）；也走 profile，用哪个由插件配置 `config.json` 的 `session_start_profile` 决定，默认 `impl-glm` |
 | `bin/reconcile.mjs` | `[[startup]]` 对账 |
 | `bin/hook-claude.mjs` | Claude Code SessionStart 钩子 |
 | `lib/worker.mjs` | worker 生命周期：起、命名、隔离、回收 |
@@ -232,8 +232,8 @@ run_preset(preset, inputs)          跑
 `finalize_run` —— 唯一的删除动词：显式验收 + git 核验 + 归属扫描后才清 run 的容器
 `set_worker_limit` · `list_profiles` · `orchestration_guide` · `herdr_status` · `ping`
 
-派活只能用 **profile**（`impl-kimi` / `impl-gpt` / `impl-glm` / `review-deepseek` / `review-kimi` /
-`review-gpt` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
+派活只能用 **profile**（`impl-glm` / `impl-deepseek` / `impl-deepseek-official` / `review-astra` /
+`review-kimi` / `review-glm` / `explore-astra`），harness、模型、思考等级都不能按次覆盖。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
 
 **2026-09-22 起 harness 只用 pi**（GG 定）：Claude 订阅被组织禁用（`impl-sonnet` / `review-opus`
@@ -245,11 +245,11 @@ run_preset(preset, inputs)          跑
 
 1. **Claude 模型做 agent 只能走原生通道**（历史约束，Claude 回来前无对象）。网关代理的
    Claude 只适合简单调用，不能拿来跑 agent——有测试守着「经 pi 的 profile 不许出现 claude 模型」。
-2. **实现主力是 `impl-kimi`（Kimi K3）和 `impl-gpt`（GPT-6 Astra，OpenAI 线 2026-09 回归）**，
-   `impl-glm`（GLM-5.3）是 **fallback**：前两个都不可用时才派。这是调度语义，写在 skill 里，
-   引擎不认识它。评审侧：**S+ 座是 `review-deepseek`（DeepSeek V4 Pro）**——难判断的活优先配它；
-   `review-kimi` / `review-gpt` 是 S 档。档位依据 2026-09-22 qp2 清单实测与埋 bug 小测
-   （见 [`docs/findings-2026-09-22-real-verbs.md`](docs/findings-2026-09-22-real-verbs.md)）。
+2. **实现主力是 `impl-glm`（GLM-5.3-flash）和 `impl-deepseek`（DeepSeek-v4.1-flash，ark 通道）**，
+   `impl-deepseek-official`（同一模型走 DeepSeek 官方 API）是 **fallback**：前两个都不可用时才派。
+   这是调度语义，写在 skill 里，引擎不认识它。评审侧：**`review-astra`（GPT-6 Astra）是唯一 S+，
+   思考强度 mid**——难判断的活优先配它；`review-kimi` / `review-glm` 是 S 档（max）。
+   档位是 GG 2026-09-23 定的（Astra 专评、DeepSeek v4 退役）；探索用 `explore-astra`（mid）。
 
 herdgent **不维护模型清单**——本地任何一份都会骗人（实测同一时刻 pi 的静态目录、
 网关活目录、`--list-models` 输出、网关白名单四者互不一致）。profile 里的模型名原样透传，

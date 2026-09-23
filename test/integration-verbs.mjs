@@ -2,7 +2,7 @@
 // 真实环境动词回归（替代旧 integration-mcp.mjs / integration-crossharness.mjs——
 // 那两个还是「裸 spawn」时代的契约，2026-09-22 随本文件删除）：
 // 真 herdr + 真模型，按【当前契约】（run_plan + spawn_worker 带 run_id/step_id）验：
-//   · run_plan 起 run（impl-kimi 真干活）
+//   · run_plan 起 run（impl-glm 真干活）
 //   · list_workers / read_worker（含 screen 模式）
 //   · send_to_worker 续派一轮并拿到新结果
 //   · cancel_worker interrupt 只停当前轮，worker 复用仍 OK
@@ -153,15 +153,15 @@ async function callTool(name, args = {}) {
 try {
   await send("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
 
-  // ---- 起 run：impl-kimi 真干活 ----
-  mark("run_plan 开始（impl-kimi 真干活）");
+  // ---- 起 run：impl-glm 真干活 ----
+  mark("run_plan 开始（impl-glm 真干活）");
   const plan = await callTool("run_plan", {
     label: "动词回归",
     repo,
     steps: [
       {
         id: "impl",
-        profile: "impl-kimi",
+        profile: "impl-glm",
         title: "动词 impl",
         task:
           "Create a file named VERBS.txt at the repo root whose entire content is the single line VERBS_R1_OK, " +
@@ -215,7 +215,7 @@ try {
   // ---- 并发闸：limit 压到 live 值时 append 被拒 ----
   const lim = await callTool("set_worker_limit", { limit: 1 });
   check("set_worker_limit 生效", lim.limit === 1, JSON.stringify(lim).slice(0, 120));
-  const overflow = await callTool("spawn_worker", { run_id: runId, step_id: "impl", title: "verbs-overflow", profile: "impl-kimi", task: "Reply OK." });
+  const overflow = await callTool("spawn_worker", { run_id: runId, step_id: "impl", title: "verbs-overflow", profile: "impl-glm", task: "Reply OK." });
   check("闸顶 append 被拒", overflow.isError && overflow.error === "worker_limit_reached", JSON.stringify(overflow).slice(0, 120));
   await callTool("set_worker_limit", { limit: 5 });
 

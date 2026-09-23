@@ -55,11 +55,12 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
   // 硬约束 2：主力与 fallback 的分工必须写在 description 里。
   // 「什么时候派」是调度语义，活在 skill 里，引擎不认识 fallback 这个概念——
   // 所以这里只能验「标没标」，验不了「派没派对」。
-  // 【2026-09-22 起主力是 impl-kimi + impl-gpt】，fallback 是 impl-glm。
-  // 排法变迁：082 GPT 下线提 Sonnet；2026-09-22 Claude 被组织禁用、GPT 回归再改。都是被迫。 
+  // 【GG 2026-09-23 定】主力是 impl-glm + impl-deepseek，fallback 是 impl-deepseek-official
+  //（DeepSeek 官方 API 通道）。排法变迁：082 提 Sonnet；0922 Claude 禁用改 kimi+gpt；
+  // 0923 Astra 专评 S+、v4 退役再改。都是 GG 裁决。
 
   // 跨厂商评审是 rex 的硬规则，前提是【每个实现者都能找到一个别家的评审】。
-  // 厂商不能从模型名或 harness 推——review-kimi 与 review-deepseek 都走 pi 却是两家，
+  // 厂商不能从模型名或 harness 推——review-kimi 与 review-glm 都走 pi 却是两家，
   // sonnet 与 opus 名字不同却同属 Anthropic——所以 profile 显式标 vendor。
   // GPT 下线那次差点把评审侧砍到只剩 Claude 一家，这条守住那个下限。
   check("每个 profile 都标了厂商", Object.values(p).every((x) => !!x.vendor), Object.entries(p).filter(([, x]) => !x.vendor).map(([n]) => n).join(",") || "全标了");
@@ -72,7 +73,7 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
   // 排优先级——而排优先级正是这里要替他定死的事。
   const fallbacks = impls.filter(([, x]) => /FALLBACK/i.test(x.description ?? ""));
   check("实现档里恰好一个标着 fallback", fallbacks.length === 1, fallbacks.map(([n]) => n).join(",") || "一个都没标");
-  check("fallback 是 impl-glm", fallbacks[0]?.[0] === "impl-glm", String(fallbacks[0]?.[0]));
+  check("fallback 是 impl-deepseek-official（官方 API 通道）", fallbacks[0]?.[0] === "impl-deepseek-official", String(fallbacks[0]?.[0]));
 
   // 评审必须是只读的，否则「评审」会去改代码——踩过。
   check("所有 review-* 都是只读", reviews.every(([, x]) => x.read_only === true), `${reviews.length} 个`);
@@ -88,10 +89,12 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
 // ---- 思考等级 ----
 {
   const p = allProfiles();
-  const heavy = Object.entries(p).filter(([n]) => /^(impl|review)-/.test(n));
-  check("实现与评审的思考等级全拉满", heavy.every(([, x]) => x.effort === "max"), heavy.map(([n, x]) => `${n}:${x.effort}`).join(" "));
-  // explore 的定位是快 + 便宜。拉满就既不快也不便宜，那就该直接派评审档的模型。
-  check("explore 不拉思考等级", !p["explore-deepseek"].effort, String(p["explore-deepseek"].effort));
+  // 【GG 2026-09-23】思考强度：Astra 模型级就是 mid（评审与探索都是）；
+  // 其余 impl/review 全部 max。
+  const heavy = Object.entries(p).filter(([n]) => /^(impl|review)-/.test(n) && !/astra/.test(n));
+  check("除 Astra 外实现与评审全拉满", heavy.every(([, x]) => x.effort === "max"), heavy.map(([n, x]) => `${n}:${x.effort}`).join(" "));
+  check("Astra 是唯一 S+ 且思考强度 mid", p["review-astra"].effort === "mid" && p["explore-astra"].effort === "mid", `review:${p["review-astra"].effort} explore:${p["explore-astra"].effort}`);
+  check("Astra 只做评审与探索（无 impl-astra）", !Object.keys(p).some((n) => n.startsWith("impl-") && /astra/.test(n)), Object.keys(p).join(","));
 }
 
 // ---- profile 是唯一真源：这些维度覆盖不了 ----

@@ -28,7 +28,7 @@ run_id 同样是句柄：要追加一个方向用 `spawn_worker({ run_id, step_i
 
 ```
 run_plan({ label:"调研缓存方案", container:"tab", steps: [
-  { id:"survey", title:"survey", profile:"explore-deepseek",
+  { id:"survey", title:"survey", profile:"explore-astra",
     task:["看 A 方案怎么实现的","看 B 方案怎么实现的","看现有代码怎么用缓存的"] },
 ]})
 ```
@@ -42,14 +42,15 @@ run_plan({ label:"调研缓存方案", container:"tab", steps: [
 
 `list_profiles`。研究只用只读的那些：
 
-- `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，适合大扇出粗筛
-- `review-deepseek` / `review-kimi` / `review-gpt` —— 要判断力时用，各走一家厂商，思考等级拉满
-  （2026-09-22 起 harness 只用 pi：Claude 被组织禁用，review-opus 已删；GPT 回归补了 review-gpt）
+- `explore-astra` —— GPT-6 Astra（mid），快且便宜，适合大扇出粗筛
+- `review-astra` / `review-kimi` / `review-glm` —— 要判断力时用，各走一家厂商
+  （review-astra 是唯一 S+，思考强度 mid；另两个 S 档拉满）
+  （档位 GG 2026-09-23 定：Astra 专评，DeepSeek v4 退役，harness 只用 pi）
 
 profile 打包了 harness、模型、思考等级和权限，**只能整包选**——
 工具的参数表里根本没有 `harness` / `model` 这两项。
 
-**扇出宽就用便宜的**。十个方向全派评审档的模型是浪费，先用 `explore-deepseek` 铺开，
+**扇出宽就用便宜的**。十个方向全派评审档的模型是浪费，先用 `explore-astra` 铺开，
 发现值得深挖的再单独派评审档。
 
 ## 综合，别转述

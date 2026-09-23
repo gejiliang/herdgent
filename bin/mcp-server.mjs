@@ -243,7 +243,7 @@ const TOOLS = [
         profile: {
           type: "string",
           description:
-            "Which profile to run this worker on (see list_profiles), e.g. 'impl-kimi' or 'review-deepseek'. This is the only way to pick harness/model/permissions — there is no per-call override. For cross-vendor review, dispatch the same task to profiles on different vendors.",
+            "Which profile to run this worker on (see list_profiles), e.g. 'impl-glm' or 'review-astra'. This is the only way to pick harness/model/permissions — there is no per-call override. For cross-vendor review, dispatch the same task to profiles on different vendors.",
         },
         task: { type: "string", description: "The full instruction handed to the agent as its opening prompt" },
         purpose: {
