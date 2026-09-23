@@ -7,13 +7,14 @@
 //   · send_to_worker 续派一轮并拿到新结果
 //   · cancel_worker interrupt 只停当前轮，worker 复用仍 OK
 //   · set_worker_limit 闸：live 到顶时 append 被拒
-//   · claude 通道（review-opus）：hook 注入与 transcript 链路真跑
+//   · claude 通道（测试自带的临时用户 profile；内置表 2026-09-22 起已无 claude 条目）：
+//     信任框应答、hook 注入与 transcript 链路真跑
 //   · finalize_run 收尾（merge 后 done）
 //
 // 不进 npm test。按隔离配方跑：node test/integration-verbs.mjs
-// 花费：kimi 几轮 trivial 回复 + 一轮 6 秒长任务 + claude opus 一次只读评审。
+// 花费：kimi 几轮 trivial 回复 + 一轮 6 秒长任务 + claude 一次只读评审（订阅禁用期自动降级）。
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -44,6 +45,24 @@ for (const k of Object.keys(serverEnv)) {
 serverEnv.HERDR_SESSION = SESSION;
 mkdirSync(join(home, "state"), { recursive: true });
 mkdirSync(join(home, "config"), { recursive: true });
+// claude 段用的临时用户 profile：内置表 2026-09-22 起已无 claude 条目（订阅被组织禁用），
+// 但 harness 适配还在——用户覆盖通道正是订阅回来时的接法，顺手也验了 profiles.json 合并。
+writeFileSync(
+  join(home, "config", "profiles.json"),
+  JSON.stringify({
+    profiles: {
+      "probe-claude": {
+        harness: "claude",
+        vendor: "anthropic",
+        model: "opus",
+        effort: "max",
+        read_only: true,
+        prompt: "You are a careful reviewer. Read files, never modify anything. Answer in one short sentence.",
+        description: "Temporary claude probe for integration-verbs (user-override channel).",
+      },
+    },
+  }),
+);
 serverEnv.HERDGENT_HOME = home;
 serverEnv.HERDGENT_STATE_DIR = join(home, "state");
 serverEnv.HERDGENT_CONFIG_DIR = join(home, "config");
@@ -200,15 +219,14 @@ try {
   check("闸顶 append 被拒", overflow.isError && overflow.error === "worker_limit_reached", JSON.stringify(overflow).slice(0, 120));
   await callTool("set_worker_limit", { limit: 5 });
 
-  // ---- claude 通道：review-opus 只读评审（append 到 impl step）----
-  // 非 yolo 的 claude 在没信任过的目录（worktree）首启会弹信任框——herdr 报 blocked，
-  // 而 wait 层对 blocked 不敏感（turns 基线拦死，会挂到 ceiling，2026-09-22 实测踩到）。
-  // 所以这里【不等 wait】：轮询屏幕，见到信任框就按 keys 应答，见到 PASS/FAIL 就收。
+  // ---- claude 通道：probe-claude（临时用户 profile）只读评审（append 到 impl step）----
+  // 非 yolo 的 claude 在没信任过的目录（worktree）首启会弹信任框——herdr 报 blocked。
+  // 这里【不等 wait】：轮询屏幕，见到信任框就按 keys 应答，见到 PASS/FAIL 就收。
   const cl = await callTool("spawn_worker", {
     run_id: runId,
     step_id: "impl",
     title: "动词 claude 评审",
-    profile: "review-opus",
+    profile: "probe-claude",
     task:
       "Read the file VERBS.txt at the repo root. Reply PASS if its entire content is exactly the single line VERBS_R1_OK, " +
       "otherwise reply FAIL with the actual content. One short sentence only.",

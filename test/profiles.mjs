@@ -41,23 +41,22 @@ const { allProfiles, getProfile, applyProfile } = await import(`../lib/profiles.
 
   check("三个实现档位都在", impls.length === 3, impls.map(([n]) => n).join(","));
 
-  // 硬约束 1：Claude 模型做 agent 只能走原生通道。网关代理的 Claude 只适合
-  // 简单调用，拿来跑 agent 不行。所以【经 pi 的 profile 里不能出现 claude 模型】。
+  // 硬约束 1（历史）：Claude 模型做 agent 只能走原生通道，网关代理的 Claude 只能
+  // 简单调用。2026-09-22 起 harness 只用 pi（Claude 被组织禁用、codex 无凭据）——
+  // 所以【经 pi 的 profile 里不能出现 claude 模型】这条变成：表里干脆没有 claude 条目。
   const viaPi = Object.entries(p).filter(([, x]) => x.harness === "pi");
   check(
     "没有经网关跑的 Claude 模型",
     viaPi.every(([, x]) => !/claude/i.test(x.model ?? "")),
     viaPi.map(([n, x]) => `${n}:${x.model}`).join(" "),
   );
-  check("Sonnet 5 走原生 claude", p["impl-sonnet"].harness === "claude", `${p["impl-sonnet"].harness} ${p["impl-sonnet"].model}`);
-  check("Opus 5 走原生 claude", p["review-opus"].harness === "claude", p["review-opus"].harness);
+  check("2026-09-22 起 harness 全 pi", Object.values(p).every((x) => x.harness === "pi"), Object.entries(p).filter(([, x]) => x.harness !== "pi").map(([n, x]) => `${n}:${x.harness}`).join(",") || "全 pi");
 
   // 硬约束 2：主力与 fallback 的分工必须写在 description 里。
   // 「什么时候派」是调度语义，活在 skill 里，引擎不认识 fallback 这个概念——
   // 所以这里只能验「标没标」，验不了「派没派对」。
-  // 【2026-08-12 起主力是 impl-kimi + impl-sonnet】，fallback 是 impl-glm。
-  // 原来那条「实现主力不许烧 Claude 订阅」随之作废：GPT 下线后没有第二个够格的
-  // 非 Claude 主力，GG 决定把 Sonnet 提上来。
+  // 【2026-09-22 起主力是 impl-kimi + impl-gpt】，fallback 是 impl-glm。
+  // 排法变迁：082 GPT 下线提 Sonnet；2026-09-22 Claude 被组织禁用、GPT 回归再改。都是被迫。 
 
   // 跨厂商评审是 rex 的硬规则，前提是【每个实现者都能找到一个别家的评审】。
   // 厂商不能从模型名或 harness 推——review-kimi 与 review-deepseek 都走 pi 却是两家，

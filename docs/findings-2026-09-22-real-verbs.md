@@ -3,18 +3,19 @@
 `test/integration-verbs.mjs`（真 herdr + 真模型，替代旧 integration-mcp / crossharness）
 建/调过程中实测到的四个事实，按影响排序。
 
-## 1. Claude 订阅访问被组织禁用（账号层，待 GG 裁决）
+## 1. Claude 订阅访问被组织禁用（账号层；GG 已裁决：harness 只用 pi）
 
 - 现象：任何路径起 claude（herdr agent、隔离 session、本机正常环境 `claude -p`）
   都报 **"Your organization has disabled Claude subscription access for Claude Code ·
   Use an Anthropic API key instead"**；TUI 状态栏同时显示 "5H: [Rate limited]"。
-- 影响：profile 表的 **impl-sonnet 与 review-opus 当前都不可用**（Claude 做 agent
-  只能走原生通道，网关代理不能顶替——硬约束 1）。实现主力剩 impl-kimi（+fallback
-  impl-glm）；S+ 评审空缺（review-kimi/deepseek 都不是 S+）。
-- 待 GG：续订/换 API key/确认是临时风控还是终止。profiles.mjs 的表未动——
-  凭据是配置，订阅回来一行不用改。
-- integration-verbs 的 claude 段已写成【自动降级】：订阅禁用期验机械链路
-  （信任框应答/启动/hook/transcript/read），恢复后 PASS 硬断言自动回升。
+- **GG 2026-09-22 裁决并已于当日实施**：Claude 不再使用，harness 只用 pi，按 qp2
+  可用模型更新 profile——impl-sonnet / review-opus 移出表；impl-gpt（gpt-6-astra，
+  OpenAI 线回归）回补为第二主力；review-deepseek 补 S+ 座；模型名以 qp2
+  `/v1/models` 清单为准（ark-kimi-k3 / ark-glm-5.3 / deepseek-v4-pro）。
+  埋 bug 小测：deepseek-v4-pro / gpt-6-astra / step-5-preview / ark-kimi-k3 都抓到
+  核心缺陷，ark-glm-5.3 在 2500 tok 预算零产出。lib/harness/claude.mjs 保留。
+- integration-verbs 的 claude 段改用测试自带的临时用户 profile（probe-claude），
+  写成【自动降级】：订阅禁用期验机械链路，恢复后 PASS 硬断言自动回升。
 
 ## 2. claude 信任框默认高亮是 "No, exit"（实操知识）
 

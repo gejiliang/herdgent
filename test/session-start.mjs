@@ -30,7 +30,7 @@ const { sessionStartProfile, applyProfile, getProfile, DEFAULT_SESSION_START_PRO
 
 // ---- 默认值本身要成立 ----
 {
-  check("默认不是 fallback 专用的 impl-sonnet", DEFAULT_SESSION_START_PROFILE !== "impl-sonnet", DEFAULT_SESSION_START_PROFILE);
+  check("默认不是 fallback 专用的 impl-glm", DEFAULT_SESSION_START_PROFILE !== "impl-glm", DEFAULT_SESSION_START_PROFILE);
   const spec = applyProfile({ profile: DEFAULT_SESSION_START_PROFILE });
   const p = getProfile(DEFAULT_SESSION_START_PROFILE);
   check(

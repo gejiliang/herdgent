@@ -49,7 +49,7 @@ review 打回、worker 跑废、或者同一步要加一份力——都用
 ```
 run_plan({ label: "重构认证", steps: [
   { id:"impl",   title:"impl",   profile:"impl-kimi", task:"..." },
-  { id:"review", title:"review", profile:["review-opus","review-kimi"],
+  { id:"review", title:"review", profile:["review-deepseek","review-kimi"],
     attach:"diff_of:impl", task:"审查 {{attached}} …" },
 ]})
 ```
@@ -85,11 +85,11 @@ run_plan({ label: "重构认证", steps: [
 | 实现用了 | 就别派 |
 |---|---|
 | `impl-kimi`（moonshot） | `review-kimi` |
-| `impl-sonnet`（anthropic） | `review-opus` ← 于是这一路只剩 A 级评审 |
+| `impl-gpt`（openai） | `review-gpt` |
 | `impl-glm`（zhipu） | —— 没有同厂评审，随便配 |
 
-`review-opus` 有个额外限制：它**跑不了任何命令**（只读靠禁掉 Bash 实现），
-所以派它必须 `attach: "diff_of:<step>"` 把改动喂进去，否则它看不到你要它评什么。
+**难判断的活把 S+ 留给它**：`review-deepseek` 是 S+ 座，优先配给最难的那一路；
+其余路配 `review-kimi` / `review-gpt`（都是 S 档）。
 
 ## profile 是唯一入口
 
@@ -97,32 +97,28 @@ run_plan({ label: "重构认证", steps: [
 **只能整包选，不能按次覆盖**——工具的参数表里根本没有 `harness` / `model` 这两项。
 
 实现（S 级，思考等级拉满）：
-- `impl-kimi` —— Kimi Code K3 256K ← **主力**
-- `impl-sonnet` —— Claude Sonnet 5，原生 Claude Code ← **主力**
-- `impl-glm` —— GLM-5.2（智谱） ← **fallback，见下**
+- `impl-kimi` —— Kimi K3（月之暗面） ← **主力**
+- `impl-gpt` —— GPT-6 Astra（OpenAI） ← **主力**
+- `impl-glm` —— GLM-5.3（智谱） ← **fallback，见下**
 
 评审（只读，思考等级拉满）：
-- `review-opus` —— Claude Opus 5，原生 Claude Code（S+）
-- `review-kimi` —— Kimi Code K3（1M 上下文）
-- `review-deepseek` —— DeepSeek V4 Pro（第三家厂商，A 级）
+- `review-deepseek` —— DeepSeek V4 Pro（**S+ 座**）
+- `review-kimi` —— Kimi K3（S 档）
+- `review-gpt` —— GPT-6 Astra（S 档）
 
 探索：
 - `explore-deepseek` —— DeepSeek V4 Flash，快且便宜，用在大扇出粗筛
 
-> **GPT 全线下线**（2026-08-12 起）：ChatGPT 订阅到期不续，`impl-gpt` / `review-gpt` 已删。
-> 网关那侧的 gpt-5.6-* 兑的是同一份凭据，一起断了，**没有绕路**。
-> 后果是评审档只剩 `review-opus` 一个 S+，别再指望「两个 S+ 互审」这种排法。
+> **2026-09-22 起 harness 只用 pi**：Claude 订阅被组织禁用（impl-sonnet / review-opus
+> 已删，回来了再加）；GPT 线 2026-09 回归（impl-gpt / review-gpt 回补，gpt-6-astra）。
+> 全部走 quota-proxy 网关，模型名以网关 /v1/models 清单为准。
 
 ### `impl-glm` 是 fallback，不是第三个主力
 
-实现一律派 `impl-kimi` 和 `impl-sonnet`——**只有这两个都不可用时才派 `impl-glm`**。
+实现一律派 `impl-kimi` 和 `impl-gpt`——**只有这两个都不可用时才派 `impl-glm`**。
 
 要更多并行算力，就多派前两个（同一个 profile 可以派好几份，给它们互不重叠的活），
 不要因为「再来一家厂商更好」就把 `impl-glm` 拉进常规编排。
-
-**派 `impl-sonnet` 就意味着那一路拿不到 S+ 评审**：`review-opus` 是唯一的 S+，
-但它跟 Sonnet 同厂商，评不了自己家写的东西，只能配 `review-kimi` 或 `review-deepseek`。
-所以**判断难度高的那部分活优先给 `impl-kimi`**，把 `review-opus` 留给它。
 
 没有合适的 profile 就**跟人说**，别试图拼一个出来。要长期加一个角色，
 写进 `~/.herdgent/config/profiles.json`——那是留痕的，临时覆盖不是。
@@ -141,7 +137,7 @@ finalize_run({
   run_id,
   verdict: "accept",
   evidence: {
-    review: "review-opus PASS：逐条核对了验收标准，发现 X 已修复",
+    review: "review-deepseek PASS：逐条核对了验收标准，发现 X 已修复",
     acceptance: "我亲自核对了 diff、跑了测试，成果是要的东西",
   },
 })

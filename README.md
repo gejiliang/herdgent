@@ -232,24 +232,24 @@ run_preset(preset, inputs)          跑
 `finalize_run` —— 唯一的删除动词：显式验收 + git 核验 + 归属扫描后才清 run 的容器
 `set_worker_limit` · `list_profiles` · `orchestration_guide` · `herdr_status` · `ping`
 
-派活只能用 **profile**（`impl-kimi` / `impl-sonnet` / `impl-glm` / `review-opus` / `review-kimi` /
-`review-deepseek` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
+派活只能用 **profile**（`impl-kimi` / `impl-gpt` / `impl-glm` / `review-deepseek` / `review-kimi` /
+`review-gpt` / `explore-deepseek`），harness、模型、思考等级都不能按次覆盖。
 **评审换一家厂商**是编排 skill 的硬规则，profile 让它变成选一个名字的事。
+
+**2026-09-22 起 harness 只用 pi**（GG 定）：Claude 订阅被组织禁用（`impl-sonnet` / `review-opus`
+移出表，lib/harness/claude.mjs 与 codex.mjs 保留——订阅回来加回数据即可，代码不用改），
+全部厂商走 quota-proxy 网关，模型名以网关 `/v1/models` 清单为准（kimicode-* 与 glm-5.2
+已摘目录，统一到 ark-kimi-k3 / ark-glm-5.3）。
 
 两条硬约束定住了这张表：
 
-1. **Claude 模型做 agent 只能走原生通道。** 网关（quota-proxy）代理的 Claude 只适合简单调用，
-   不能拿来跑 agent。所以 `impl-sonnet` / `review-opus` 都是原生 Claude Code，经 pi 的
-   profile 里不会出现任何 Claude 模型——有测试守着。
-2. **实现主力是 `impl-kimi`（Kimi Code K3 256K）和 `impl-sonnet`（Claude Sonnet 5）**，
-   `impl-glm`（GLM-5.2）是 **fallback**：前两个都不可用时才派。这是调度语义，写在 skill 里，
-   引擎不认识它。代价要知道：`review-opus` 是唯一的 S+ 评审，跟 Sonnet 同厂商评不了自己家，
-   所以**派 `impl-sonnet` 的那一路只能拿 A 级评审**——难判断的活优先给 `impl-kimi`。
-
-**OpenAI 整条线现在是断的**（2026-08-12 实测，见
-[`docs/model-availability-2026-08-12.md`](docs/model-availability-2026-08-12.md)）：ChatGPT 订阅
-到期不续，原生 codex 与网关上的 `gpt-5.6-*` 兑的是同一份凭据，一起没了。`impl-gpt` / `review-gpt`
-两个 profile 已删，`lib/harness/codex.mjs` 保留——订阅回来加回两条数据即可，代码不用改。
+1. **Claude 模型做 agent 只能走原生通道**（历史约束，Claude 回来前无对象）。网关代理的
+   Claude 只适合简单调用，不能拿来跑 agent——有测试守着「经 pi 的 profile 不许出现 claude 模型」。
+2. **实现主力是 `impl-kimi`（Kimi K3）和 `impl-gpt`（GPT-6 Astra，OpenAI 线 2026-09 回归）**，
+   `impl-glm`（GLM-5.3）是 **fallback**：前两个都不可用时才派。这是调度语义，写在 skill 里，
+   引擎不认识它。评审侧：**S+ 座是 `review-deepseek`（DeepSeek V4 Pro）**——难判断的活优先配它；
+   `review-kimi` / `review-gpt` 是 S 档。档位依据 2026-09-22 qp2 清单实测与埋 bug 小测
+   （见 [`docs/findings-2026-09-22-real-verbs.md`](docs/findings-2026-09-22-real-verbs.md)）。
 
 herdgent **不维护模型清单**——本地任何一份都会骗人（实测同一时刻 pi 的静态目录、
 网关活目录、`--list-models` 输出、网关白名单四者互不一致）。profile 里的模型名原样透传，
